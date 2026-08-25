@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,14 +14,22 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2, Lock } from "lucide-react";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [loadingMagicLink, setLoadingMagicLink] = useState(false);
   const [sent, setSent] = useState(false);
+
+  const [pwEmail, setPwEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loadingSignIn, setLoadingSignIn] = useState(false);
+  const [loadingSignUp, setLoadingSignUp] = useState(false);
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
 
   const siteUrl =
     typeof window !== "undefined"
@@ -35,7 +44,11 @@ export default function LoginPage() {
       options: { redirectTo: `${siteUrl}/auth/callback` },
     });
     if (error) {
-      toast.error(error.message);
+      toast.error(
+        error.message.includes("provider is not enabled")
+          ? "Google sign-in isn't configured on this project yet — use email below instead."
+          : error.message
+      );
       setLoadingGoogle(false);
     }
   }
@@ -55,6 +68,53 @@ export default function LoginPage() {
       return;
     }
     setSent(true);
+  }
+
+  async function signInWithPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pwEmail.trim() || !password) return;
+    setLoadingSignIn(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({
+      email: pwEmail,
+      password,
+    });
+    setLoadingSignIn(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    router.push("/");
+    router.refresh();
+  }
+
+  async function signUpWithPassword() {
+    if (!pwEmail.trim() || !password) {
+      toast.error("Enter an email and password first");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    setLoadingSignUp(true);
+    const supabase = createClient();
+    const { data, error } = await supabase.auth.signUp({
+      email: pwEmail,
+      password,
+      options: { emailRedirectTo: `${siteUrl}/auth/callback` },
+    });
+    setLoadingSignUp(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    if (data.session) {
+      router.push("/");
+      router.refresh();
+      return;
+    }
+    setAwaitingConfirmation(true);
   }
 
   return (
@@ -86,30 +146,97 @@ export default function LoginPage() {
             <Separator className="flex-1" />
           </div>
 
-          {sent ? (
-            <p className="text-center text-sm text-muted-foreground">
-              Check <span className="text-foreground">{email}</span> for a sign-in
-              link.
-            </p>
-          ) : (
-            <form onSubmit={signInWithMagicLink} className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={loadingMagicLink}>
-                {loadingMagicLink && <Loader2 className="h-4 w-4 animate-spin" />}
-                Send magic link
-              </Button>
-            </form>
-          )}
+          <Tabs defaultValue="password">
+            <TabsList className="w-full">
+              <TabsTrigger value="password" className="flex-1">
+                Password
+              </TabsTrigger>
+              <TabsTrigger value="magic-link" className="flex-1">
+                Magic link
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="password" className="pt-3">
+              {awaitingConfirmation ? (
+                <p className="text-center text-sm text-muted-foreground">
+                  Check <span className="text-foreground">{pwEmail}</span> for a
+                  confirmation link, then come back and sign in.
+                </p>
+              ) : (
+                <form onSubmit={signInWithPassword} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="pw-email">Email</Label>
+                    <Input
+                      id="pw-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={pwEmail}
+                      onChange={(e) => setPwEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="submit"
+                      className="flex-1"
+                      disabled={loadingSignIn || loadingSignUp}
+                    >
+                      {loadingSignIn && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Sign in
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      disabled={loadingSignIn || loadingSignUp}
+                      onClick={signUpWithPassword}
+                    >
+                      {loadingSignUp && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Create account
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </TabsContent>
+
+            <TabsContent value="magic-link" className="pt-3">
+              {sent ? (
+                <p className="text-center text-sm text-muted-foreground">
+                  Check <span className="text-foreground">{email}</span> for a sign-in
+                  link.
+                </p>
+              ) : (
+                <form onSubmit={signInWithMagicLink} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loadingMagicLink}>
+                    {loadingMagicLink && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Send magic link
+                  </Button>
+                </form>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

@@ -17,8 +17,15 @@ Next.js 16 (App Router) · TypeScript · Tailwind + shadcn/ui · Zustand · Supa
 2. **Create a Supabase project** at [supabase.com](https://supabase.com), then run the migration:
    - Open the SQL editor in your Supabase project.
    - Paste and run [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql).
-   - In Authentication > Providers, enable **Google** and **Email** (magic link).
    - In Authentication > URL Configuration, add `http://localhost:4210/auth/callback` as a redirect URL.
+   - **Email** sign-in (magic link + password) is enabled by default — nothing to do.
+   - **Google** sign-in needs real OAuth credentials before the button works: create an
+     OAuth Client ID in [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
+     add Supabase's callback URL (Authentication > Providers > Google shows it) as an
+     authorized redirect URI, then paste the Client ID/Secret into that same Supabase
+     provider screen and toggle it on. Until then, clicking "Continue with Google" shows
+     a "not configured" toast — use the **Password** tab on `/login` instead, or
+     **Magic link** if you'd rather not set a password.
 
 3. **Copy the env template** and fill in your keys:
    ```bash
@@ -42,7 +49,7 @@ Next.js 16 (App Router) · TypeScript · Tailwind + shadcn/ui · Zustand · Supa
 
 ```
 app/
-  login/                 -- sign-in (Google OAuth + email magic link)
+  login/                 -- sign-in (Google OAuth, email+password, magic link)
   auth/callback/         -- OAuth/magic-link code exchange
   (dashboard)/           -- everything behind auth, shares the sidebar layout
     page.tsx             -- timer + streak/heatmap + upcoming tasks
