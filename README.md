@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LockIn
 
-## Getting Started
+Personal deep work OS: start a timer, tag what you're doing, watch the evidence pile up.
+Built from [`PRD.md`](PRD.md) — see it for the full product spec, phasing, and open questions.
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Next.js 16 (App Router) · TypeScript · Tailwind + shadcn/ui · Zustand · Supabase (Postgres/Auth) · Anthropic API
+
+## Setup
+
+1. **Install dependencies** (already done if you just cloned this):
+   ```bash
+   npm install
+   ```
+
+2. **Create a Supabase project** at [supabase.com](https://supabase.com), then run the migration:
+   - Open the SQL editor in your Supabase project.
+   - Paste and run [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql).
+   - In Authentication > Providers, enable **Google** and **Email** (magic link).
+   - In Authentication > URL Configuration, add `http://localhost:3000/auth/callback` as a redirect URL.
+
+3. **Copy the env template** and fill in your keys:
+   ```bash
+   cp .env.local.example .env.local
+   ```
+   - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Project Settings > API.
+   - `ANTHROPIC_API_KEY` — used server-side only, by `/api/refine-prompt`.
+
+4. **Run the dev server**:
+   ```bash
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000). You'll be redirected to `/login`.
+
+## Project structure
+
+```
+app/
+  login/                 -- sign-in (Google OAuth + email magic link)
+  auth/callback/         -- OAuth/magic-link code exchange
+  (dashboard)/           -- everything behind auth, shares the sidebar layout
+    page.tsx             -- timer + streak/heatmap + upcoming tasks
+    tasks/                -- To-Do / Done / Log
+    notes/                -- notes with tags, search, one-click copy
+    prompts/              -- prompt library + Claude-powered refiner
+    freedom/              -- Freedom Goal wizard + progress widget
+    room/                 -- ambient theme, custom YouTube embed, volume
+  api/                    -- route handlers backing all of the above
+components/
+  ui/                    -- shadcn/ui primitives
+  timer/ nav/ notes/ prompts/ heatmap/
+lib/
+  supabase/              -- browser + server clients, session-refresh proxy
+  store/timer.ts         -- Zustand timer state (see below)
+  anthropic/             -- server-side Claude call for prompt refinement
+  streak.ts              -- heatmap/streak aggregation
+db/migrations/0001_init.sql  -- full schema, RLS policies, triggers
+proxy.ts                 -- Next 16's middleware replacement; guards /(dashboard)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## How the timer survives a refresh
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The Zustand store (`lib/store/timer.ts`) never counts up on its own. It records a
+`startedAt` epoch timestamp when you hit Start/Resume and banks elapsed seconds on
+Pause; the on-screen number is recomputed from that timestamp every render. The whole
+state is persisted to `localStorage`, so a refresh or closed tab reconstructs the exact
+elapsed time instead of losing it — no server round-trip required to tick.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Sessions are only written to Postgres when you hit **Complete** (or logged as
+`cancelled` isn't persisted at all — cancel just discards the local state). This keeps
+the timer NFR ("must not depend on a server round-trip to tick") trivially true.
 
-## Learn More
+## What's not built yet
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Per the PRD's phasing, these are intentionally out of scope for this pass:
+- Public rooms, live presence, room membership (v2) — `rooms`/`room_members` tables
+  exist in the migration but have no UI.
+- Manual revenue logging against the Freedom Goal (v1 tracks hours only).
+- Push/email notifications, break-screen mini-games, easter eggs.
