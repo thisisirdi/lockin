@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,16 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { fetchJSON } from "@/lib/fetch-json";
 import { extractYouTubeId } from "@/lib/youtube";
+import { ROOM_BACKGROUNDS, getRoomBackground } from "@/lib/room-backgrounds";
 import type { RoomSettings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Volume2 } from "lucide-react";
-
-const THEMES = [
-  { id: "lofi", label: "Lofi", className: "from-indigo-500/30 via-purple-500/20 to-slate-900" },
-  { id: "ghibli", label: "Ghibli", className: "from-emerald-500/30 via-sky-500/20 to-slate-900" },
-  { id: "rain", label: "Rain", className: "from-slate-600/40 via-slate-700/30 to-slate-900" },
-] as const;
+import { Volume2, Check } from "lucide-react";
 
 export default function RoomPage() {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
@@ -53,19 +49,14 @@ export default function RoomPage() {
   if (!settings) return null;
 
   const videoId = settings.youtube_url ? extractYouTubeId(settings.youtube_url) : null;
-  const theme = THEMES.find((t) => t.id === settings.theme) ?? THEMES[0];
+  const background = getRoomBackground(settings.theme) ?? ROOM_BACKGROUNDS[0];
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold">My Room</h1>
 
       <Card className="overflow-hidden">
-        <div
-          className={cn(
-            "flex h-48 items-center justify-center bg-gradient-to-br",
-            !videoId && theme.className
-          )}
-        >
+        <div className="relative flex h-56 items-center justify-center bg-muted">
           {videoId ? (
             <iframe
               ref={iframeRef}
@@ -76,23 +67,53 @@ export default function RoomPage() {
               allowFullScreen
             />
           ) : (
-            <span className="text-sm text-white/70">{theme.label} ambience</span>
+            <>
+              <Image
+                src={`/room-backgrounds/${background.file}`}
+                alt={background.label}
+                fill
+                priority
+                sizes="(max-width: 768px) 100vw, 672px"
+                className="object-cover"
+              />
+              <span className="absolute bottom-3 left-3 rounded-full bg-black/40 px-2.5 py-1 text-xs text-white backdrop-blur-sm">
+                {background.label}
+              </span>
+            </>
           )}
         </div>
-        <CardContent className="space-y-4 pt-6">
+        <CardContent className="space-y-5 pt-6">
           <div className="space-y-2">
-            <Label>Theme</Label>
-            <div className="flex gap-2">
-              {THEMES.map((t) => (
-                <Button
-                  key={t.id}
-                  variant={settings.theme === t.id ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => persist({ ...settings, theme: t.id })}
-                >
-                  {t.label}
-                </Button>
-              ))}
+            <Label>Background</Label>
+            <div className="grid grid-cols-5 gap-2">
+              {ROOM_BACKGROUNDS.map((bg) => {
+                const active = settings.theme === bg.id;
+                return (
+                  <button
+                    key={bg.id}
+                    type="button"
+                    title={bg.label}
+                    onClick={() => persist({ ...settings, theme: bg.id })}
+                    className={cn(
+                      "relative aspect-video overflow-hidden rounded-md ring-offset-2 ring-offset-background transition-all",
+                      active ? "ring-2 ring-primary" : "opacity-80 hover:opacity-100"
+                    )}
+                  >
+                    <Image
+                      src={`/room-backgrounds/${bg.file}`}
+                      alt={bg.label}
+                      fill
+                      sizes="120px"
+                      className="object-cover"
+                    />
+                    {active && (
+                      <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <Check className="h-2.5 w-2.5" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -115,6 +136,10 @@ export default function RoomPage() {
                 Set
               </Button>
             </form>
+            <p className="text-xs text-muted-foreground">
+              Overrides the background above while set. Clear the field and hit Set to
+              go back to your chosen photo.
+            </p>
           </div>
 
           <div className="space-y-2">

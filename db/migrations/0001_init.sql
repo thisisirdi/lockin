@@ -18,7 +18,7 @@ create table public.profiles (
     "cycles_before_long_break": 4
   }'::jsonb,
   room_settings jsonb not null default '{
-    "theme": "lofi",
+    "theme": "tokyo-neon-rain-street",
     "youtube_url": null,
     "volume": 50
   }'::jsonb,
