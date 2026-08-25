@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/nav/sidebar";
 import { UserMenu } from "@/components/nav/user-menu";
+import { ClipboardSheet } from "@/components/clipboard/clipboard-sheet";
+import { QuickNoteSheet } from "@/components/notes/quick-note-sheet";
 
 export default async function DashboardLayout({
   children,
@@ -16,7 +18,9 @@ export default async function DashboardLayout({
     <div className="flex min-h-screen">
       <Sidebar />
       <div className="flex flex-1 flex-col">
-        <header className="flex h-14 items-center justify-end border-b border-border px-4">
+        <header className="flex h-14 items-center justify-end gap-1 border-b border-border px-4">
+          <QuickNoteSheet />
+          <ClipboardSheet />
           <UserMenu
             email={user?.email ?? null}
             avatarUrl={(user?.user_metadata?.avatar_url as string | undefined) ?? null}

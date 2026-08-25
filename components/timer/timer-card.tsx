@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { CategorySelect } from "@/components/timer/category-select";
+import { TaskSelect } from "@/components/timer/task-select";
 import { PomodoroSettingsDialog } from "@/components/timer/pomodoro-settings-dialog";
 import { useTimerStore, type TimerMode } from "@/lib/store/timer";
 import { formatDuration } from "@/lib/format-duration";
@@ -27,6 +28,7 @@ export function TimerCard({ onSessionSaved }: { onSessionSaved?: () => void }) {
     status,
     mode,
     categoryId,
+    taskId,
     pomodoroPhase,
     sessionStartedAt,
     advancePomodoroPhase,
@@ -64,7 +66,7 @@ export function TimerCard({ onSessionSaved }: { onSessionSaved?: () => void }) {
   }, [remaining, mode, status, advancePomodoroPhase]);
 
   async function handleStart(nextMode: TimerMode) {
-    store.start({ mode: nextMode, categoryId });
+    store.start({ mode: nextMode, categoryId, taskId });
   }
 
   async function handleComplete() {
@@ -75,6 +77,7 @@ export function TimerCard({ onSessionSaved }: { onSessionSaved?: () => void }) {
         method: "POST",
         body: JSON.stringify({
           categoryId,
+          taskId,
           mode,
           startedAt: new Date(sessionStartedAt).toISOString(),
           endedAt: new Date().toISOString(),
@@ -137,10 +140,15 @@ export function TimerCard({ onSessionSaved }: { onSessionSaved?: () => void }) {
             : formatDuration(elapsed, true)}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           <CategorySelect
             value={categoryId}
             onChange={(id) => useTimerStore.setState({ categoryId: id })}
+            disabled={!isIdle}
+          />
+          <TaskSelect
+            value={taskId}
+            onChange={(id) => useTimerStore.setState({ taskId: id })}
             disabled={!isIdle}
           />
           {mode === "pomodoro" && isIdle && <PomodoroSettingsDialog />}

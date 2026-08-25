@@ -18,20 +18,25 @@ Next.js 16 (App Router) · TypeScript · Tailwind + shadcn/ui · Zustand · Supa
    - Open the SQL editor in your Supabase project.
    - Paste and run [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql).
    - In Authentication > Providers, enable **Google** and **Email** (magic link).
-   - In Authentication > URL Configuration, add `http://localhost:3000/auth/callback` as a redirect URL.
+   - In Authentication > URL Configuration, add `http://localhost:4210/auth/callback` as a redirect URL.
 
 3. **Copy the env template** and fill in your keys:
    ```bash
    cp .env.local.example .env.local
    ```
    - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Project Settings > API.
-   - `ANTHROPIC_API_KEY` — used server-side only, by `/api/refine-prompt`.
+   - `ANTHROPIC_API_KEY` — used server-side only, by `/api/refine-prompt`. The refiner
+     fails with a clean 500 (no crash) if this is left blank.
+   - `PORT` — defaults to `4210` instead of Next's usual `3000`, since that port tends
+     to already be taken by other projects. `next dev` reads `PORT` natively, so
+     changing this one line is enough; keep `NEXT_PUBLIC_SITE_URL` in sync since it's
+     used to build the OAuth/magic-link redirect.
 
 4. **Run the dev server**:
    ```bash
    npm run dev
    ```
-   Open [http://localhost:3000](http://localhost:3000). You'll be redirected to `/login`.
+   Open [http://localhost:4210](http://localhost:4210). You'll be redirected to `/login`.
 
 ## Project structure
 
