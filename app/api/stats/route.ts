@@ -32,11 +32,13 @@ export async function GET() {
 
   const dailyMinutes = computeDailyMinutes(sessions ?? [], timezone);
   const streak = computeStreak(dailyMinutes, minMinutes, timezone);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
 
   return NextResponse.json({
     streak,
     minMinutes,
     timezone,
+    todayMinutes: dailyMinutes.get(today) ?? 0,
     dailyMinutes: Object.fromEntries(dailyMinutes),
   });
 }

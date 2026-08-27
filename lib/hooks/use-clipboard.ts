@@ -6,7 +6,7 @@ import type { ClipboardItem } from "@/lib/types";
 
 export function useClipboardHistory() {
   const [items, setItems] = useState<ClipboardItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -32,5 +32,5 @@ export function useClipboardHistory() {
     setItems([]);
   }, []);
 
-  return { items, loading, refresh, remove, clear };
+  return { items, loading, load, refresh, remove, clear };
 }
