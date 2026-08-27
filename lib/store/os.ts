@@ -35,8 +35,11 @@ interface OSState {
   blur: number;
   font: string;
   wallpaper: string;
+  /** True while any window is being dragged or resized — drives the grid overlay. */
+  interacting: boolean;
 
   focus: (id: WindowId) => void;
+  setInteracting: (interacting: boolean) => void;
   show: (id: WindowId, stage: { width: number; height: number }) => void;
   hide: (id: WindowId, minimized?: boolean) => void;
   toggle: (id: WindowId, stage: { width: number; height: number }) => void;
@@ -61,6 +64,9 @@ export const useOSStore = create<OSState>()(
       blur: 30,
       font: "'IBM Plex Sans JP', system-ui, sans-serif",
       wallpaper: "tokyo-neon-rain-street",
+      interacting: false,
+
+      setInteracting: (interacting) => set({ interacting }),
 
       focus: (id) => {
         const z = get().topZ + 1;

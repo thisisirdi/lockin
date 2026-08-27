@@ -14,6 +14,7 @@ import { NotesWindow } from "@/components/os/windows/NotesWindow";
 import { PromptsWindow } from "@/components/os/windows/PromptsWindow";
 import { ClipboardWindow } from "@/components/os/windows/ClipboardWindow";
 import { Companion } from "@/components/os/companion/Companion";
+import { GridOverlay } from "@/components/os/GridOverlay";
 import { Dock } from "@/components/os/Dock";
 import { SelectionAsk } from "@/components/os/SelectionAsk";
 import { UserMenu } from "@/components/nav/user-menu";
@@ -98,6 +99,8 @@ export function Desktop({
             "linear-gradient(180deg, rgba(6,7,9,0.42) 0%, rgba(6,7,9,0.62) 55%, rgba(6,7,9,0.78) 100%)",
         }}
       />
+
+      <GridOverlay />
 
       <div className="absolute right-3.5 top-3.5 z-50">
         <UserMenu email={email} avatarUrl={avatarUrl} />

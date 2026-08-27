@@ -5,10 +5,27 @@ import { useOSStore } from "@/lib/store/os";
 import { WINDOW_META, type WindowId } from "@/lib/os/types";
 import { useCompanionStore } from "@/lib/store/companion";
 import { resolveWindowContext } from "@/lib/companion/resolve-window-context";
+import { collectSnapTargets, snapPosition, snapSingleEdge } from "@/lib/os/snap";
 import { Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const DROPPABLE: WindowId[] = ["tasks", "notes", "timer", "freedom", "prompts"];
+
+const MIN_W = 240;
+const MIN_H = 150;
+
+type ResizeEdge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
+const RESIZE_HANDLES: { edge: ResizeEdge; className: string; cursor: string }[] = [
+  { edge: "n", className: "left-2 right-2 top-0 h-2", cursor: "ns-resize" },
+  { edge: "s", className: "left-2 right-2 bottom-0 h-2", cursor: "ns-resize" },
+  { edge: "e", className: "top-2 bottom-2 right-0 w-2", cursor: "ew-resize" },
+  { edge: "w", className: "top-2 bottom-2 left-0 w-2", cursor: "ew-resize" },
+  { edge: "ne", className: "right-0 top-0 h-3 w-3", cursor: "nesw-resize" },
+  { edge: "nw", className: "left-0 top-0 h-3 w-3", cursor: "nwse-resize" },
+  { edge: "se", className: "right-0 bottom-0 h-3 w-3", cursor: "nwse-resize" },
+  { edge: "sw", className: "left-0 bottom-0 h-3 w-3", cursor: "nesw-resize" },
+];
 
 export function OSWindow({
   id,
@@ -27,6 +44,7 @@ export function OSWindow({
   const focus = useOSStore((s) => s.focus);
   const hide = useOSStore((s) => s.hide);
   const commitGeometry = useOSStore((s) => s.commitGeometry);
+  const setInteracting = useOSStore((s) => s.setInteracting);
   const elRef = useRef<HTMLDivElement>(null);
 
   if (!win.visible) return null;
@@ -39,6 +57,7 @@ export function OSWindow({
     if ((e.target as HTMLElement).closest("button, input, textarea, a")) return;
     e.preventDefault();
     focus(id);
+    setInteracting(true);
     const s = stage();
     const r = elRef.current!.getBoundingClientRect();
     const dx = e.clientX - r.left;
@@ -49,8 +68,13 @@ export function OSWindow({
     function move(ev: PointerEvent) {
       let x = ev.clientX - s.left - dx;
       let y = ev.clientY - s.top - dy;
-      x = Math.round(x / 8) * 8;
-      y = Math.round(y / 8) * 8;
+
+      if (stageRef.current) {
+        const { xs, ys } = collectSnapTargets(stageRef.current, id);
+        x = snapPosition(x, r.width, xs);
+        y = snapPosition(y, r.height, ys);
+      }
+
       x = Math.max(-r.width + 80, Math.min(x, s.width - 80));
       y = Math.max(0, Math.min(y, s.height - 40));
       if (elRef.current) {
@@ -72,6 +96,7 @@ export function OSWindow({
     function up() {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      setInteracting(false);
       const s2 = stage();
       const r2 = elRef.current!.getBoundingClientRect();
       commitGeometry(id, { x: r2.left - s2.left, y: r2.top - s2.top });
@@ -91,28 +116,58 @@ export function OSWindow({
     window.addEventListener("pointerup", up);
   }
 
-  function startResize(e: React.PointerEvent) {
+  function startResize(e: React.PointerEvent, edge: ResizeEdge) {
     e.preventDefault();
     e.stopPropagation();
     focus(id);
+    setInteracting(true);
+    const s = stage();
     const r = elRef.current!.getBoundingClientRect();
-    const x0 = e.clientX;
-    const y0 = e.clientY;
-    const w0 = r.width;
-    const h0 = r.height;
+    const left0 = r.left - s.left;
+    const top0 = r.top - s.top;
+    const right0 = left0 + r.width;
+    const bottom0 = top0 + r.height;
+
+    const affects = {
+      n: edge.includes("n"),
+      s: edge.includes("s"),
+      e: edge.includes("e"),
+      w: edge.includes("w"),
+    };
 
     function move(ev: PointerEvent) {
-      if (!elRef.current) return;
-      elRef.current.style.width = `${Math.max(240, w0 + ev.clientX - x0)}px`;
-      elRef.current.style.height = `${Math.max(150, h0 + ev.clientY - y0)}px`;
+      if (!elRef.current || !stageRef.current) return;
+      const px = ev.clientX - s.left;
+      const py = ev.clientY - s.top;
+      const { xs, ys } = collectSnapTargets(stageRef.current, id);
+
+      let left = left0;
+      let right = right0;
+      let top = top0;
+      let bottom = bottom0;
+
+      if (affects.w) left = Math.min(snapSingleEdge(px, xs), right0 - MIN_W);
+      if (affects.e) right = Math.max(snapSingleEdge(px, xs), left0 + MIN_W);
+      if (affects.n) top = Math.min(snapSingleEdge(py, ys), bottom0 - MIN_H);
+      if (affects.s) bottom = Math.max(snapSingleEdge(py, ys), top0 + MIN_H);
+
+      elRef.current.style.left = `${left}px`;
+      elRef.current.style.top = `${top}px`;
+      elRef.current.style.width = `${right - left}px`;
+      elRef.current.style.height = `${bottom - top}px`;
     }
     function up() {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      setInteracting(false);
       if (elRef.current) {
+        const s2 = stage();
+        const r2 = elRef.current.getBoundingClientRect();
         commitGeometry(id, {
-          w: elRef.current.offsetWidth,
-          h: elRef.current.offsetHeight,
+          x: r2.left - s2.left,
+          y: r2.top - s2.top,
+          w: r2.width,
+          h: r2.height,
         });
       }
     }
@@ -174,10 +229,14 @@ export function OSWindow({
 
       <div className="min-h-0 flex-1">{children}</div>
 
-      <div
-        onPointerDown={startResize}
-        className="absolute bottom-0 right-0 h-[18px] w-[18px] cursor-nwse-resize"
-      />
+      {RESIZE_HANDLES.map(({ edge, className, cursor }) => (
+        <div
+          key={edge}
+          onPointerDown={(e) => startResize(e, edge)}
+          className={cn("absolute", className)}
+          style={{ cursor }}
+        />
+      ))}
     </div>
   );
 }
