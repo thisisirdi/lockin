@@ -1,5 +1,10 @@
 # PRD: LockIn (working name) — Personal Deep Work OS
 
+> **Note:** This is the original spec. The UI it describes (sidebar + routed pages) has
+> since been replaced by a desktop-style window-manager redesign — see
+> [`README.md`](README.md#the-os-redesign) for the current architecture. The underlying
+> features, data model, and API routes below are still accurate; only the shell changed.
+
 ## Overview
 
 LockIn is a personal productivity app built around a single mechanic: **start a timer, tag what you're doing, and watch the evidence pile up**. It reverse-engineers the core loop of clockout.gg/FRDM (focus timer + ambient co-working rooms + streaks + a "financial freedom" framing for the work) and extends it with tools Irdi actually needs day to day: a notes/clipboard system built for fast copy-paste, a prompt library, and an AI-assisted prompt refiner. Multiplayer rooms, easter eggs, and mini-games are real but explicitly secondary — they ship after the solo loop is solid enough to use daily.
