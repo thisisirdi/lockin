@@ -105,11 +105,6 @@ export const SessionCreateSchema = z.object({
   status: z.enum(["completed", "cancelled"]),
 });
 
-export const RefinePromptSchema = z.object({
-  rawInput: z.string().trim().min(1),
-  originalPromptId: z.string().uuid().nullable().optional(),
-});
-
 export const CompanionChatSchema = z.object({
   message: z.string().trim().min(1),
   history: z
@@ -120,10 +115,6 @@ export const CompanionChatSchema = z.object({
 
 export const CompanionAskNotesSchema = z.object({
   question: z.string().trim().min(1),
-});
-
-export const CompanionBreakdownSchema = z.object({
-  title: z.string().trim().min(1),
 });
 
 export const BlockTypeSchema = z.enum([
@@ -215,3 +206,17 @@ export const RunUpdateSchema = z.object({
   rating: z.number().int().min(1).max(5).optional(),
   critiqueTags: z.array(z.string()).optional(),
 });
+
+export const PatchSuggestionSchema = z.object({
+  critiqueTag: z.string().trim().min(1),
+});
+
+export const PromoteVersionSchema = z.object({
+  versionId: z.string().uuid(),
+});
+
+export const CompanionActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("plan") }),
+  z.object({ action: z.literal("breakdown"), title: z.string().trim().min(1) }),
+  z.object({ action: z.literal("unstick-smallest") }),
+]);

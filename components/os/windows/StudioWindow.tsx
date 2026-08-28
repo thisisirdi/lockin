@@ -6,11 +6,13 @@ import { OSWindow } from "@/components/os/Window";
 import { useOSStore } from "@/lib/store/os";
 import { useStudioStore } from "@/lib/store/studio";
 import { useFrameworks } from "@/lib/hooks/use-frameworks";
-import { usePromptVersions } from "@/lib/hooks/use-prompt-versions";
+import { usePromptVersions, fetchVersionDiff } from "@/lib/hooks/use-prompt-versions";
 import { useContextBlocks } from "@/lib/hooks/use-context-blocks";
 import { useRuns } from "@/lib/hooks/use-runs";
+import { usePromptRuns, type PatchSuggestion } from "@/lib/hooks/use-prompt-runs";
 import { resolvePrompt, estimateTokens } from "@/lib/studio/resolve";
 import { streamRefineBlock } from "@/lib/studio/refine-stream";
+import { patchBlock, type BlockDiffEntry } from "@/lib/studio/diff";
 import { BLOCK_LABELS, DELIVERABLE_TYPES } from "@/lib/studio/constants";
 import { fetchJSON } from "@/lib/fetch-json";
 import { copyWithHistory } from "@/lib/copy";
@@ -28,7 +30,19 @@ import {
   Plus,
   Copy,
   ExternalLink,
+  Star,
+  GitCompare,
 } from "lucide-react";
+
+const CRITIQUE_TAGS: { tag: string; label: string }[] = [
+  { tag: "too_long", label: "Too long" },
+  { tag: "too_generic", label: "Too generic" },
+  { tag: "wrong_audience", label: "Wrong audience" },
+  { tag: "missed_constraint", label: "Missed a constraint" },
+  { tag: "wrong_format", label: "Wrong format" },
+  { tag: "invented_facts", label: "Invented facts" },
+  { tag: "wrong_tone", label: "Wrong tone" },
+];
 
 const CONTEXT_TOKEN_BUDGET = 8000;
 
@@ -73,11 +87,14 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
   const detachContextBlock = useStudioStore((s) => s.detachContextBlock);
   const currentVersionId = useStudioStore((s) => s.currentVersionId);
   const markSaved = useStudioStore((s) => s.markSaved);
+  const switchVersion = useStudioStore((s) => s.switchVersion);
+  const setBlocksInStore = useStudioStore((s) => s.setBlocks);
   const reset = useStudioStore((s) => s.reset);
 
-  const { versions } = usePromptVersions(promptId);
+  const { versions, promoteVersion } = usePromptVersions(promptId);
   const { contextBlocks, createContextBlock } = useContextBlocks(visible);
   const { createRun, recordOutput } = useRuns();
+  const { runs, rateRun, setCritiqueTags, requestPatch } = usePromptRuns(promptId);
   const queryClient = useQueryClient();
 
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
@@ -96,6 +113,12 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
   const [fillValues, setFillValues] = useState<Record<string, string>>({});
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [pastedOutput, setPastedOutput] = useState("");
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [patchingRunId, setPatchingRunId] = useState<string | null>(null);
+  const [activePatch, setActivePatch] = useState<(PatchSuggestion & { runId: string }) | null>(null);
+  const [diffVersionId, setDiffVersionId] = useState<string | null>(null);
+  const [diffEntries, setDiffEntries] = useState<BlockDiffEntry[] | null>(null);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!framework && !promptId && frameworks.length > 0) {
@@ -293,6 +316,91 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
       setAddingContext(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't create that context block");
+    }
+  }
+
+  async function handleToggleCritiqueTag(runId: string, tag: string, currentTags: string[]) {
+    const has = currentTags.includes(tag);
+    const nextTags = has ? currentTags.filter((t) => t !== tag) : [...currentTags, tag];
+    setCritiqueTags(runId, nextTags).catch(() =>
+      toast.error("Couldn't save that tag")
+    );
+    if (has) {
+      if (activePatch?.runId === runId) setActivePatch(null);
+      return;
+    }
+    setPatchingRunId(runId);
+    setActivePatch(null);
+    try {
+      const suggestion = await requestPatch(runId, tag);
+      setActivePatch({ ...suggestion, runId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't propose a patch");
+    } finally {
+      setPatchingRunId(null);
+    }
+  }
+
+  async function handleAcceptPatch() {
+    if (!activePatch || !promptId) return;
+    const newBlocks = patchBlock(blocks, activePatch.blockType, activePatch.after);
+    setBlocksInStore(newBlocks);
+    try {
+      const { version } = await fetchJSON<{ version: PromptVersion }>(
+        `/api/prompts/${promptId}/versions`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            blocks: newBlocks,
+            variables,
+            changeNote: `Patched ${BLOCK_LABELS[activePatch.blockType]} from run feedback`,
+            createdFromRunId: activePatch.runId,
+          }),
+        }
+      );
+      markSaved(promptId, version.id);
+      queryClient.invalidateQueries({ queryKey: ["prompts"] });
+      queryClient.invalidateQueries({ queryKey: ["prompt-versions", promptId] });
+      toast.success(`Saved v${version.version_no}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't save the patched version");
+    } finally {
+      setActivePatch(null);
+    }
+  }
+
+  async function handleToggleDiff(versionId: string) {
+    if (diffVersionId === versionId) {
+      setDiffVersionId(null);
+      setDiffEntries(null);
+      return;
+    }
+    if (!promptId || !currentVersionId) return;
+    setDiffVersionId(versionId);
+    setDiffEntries(null);
+    try {
+      const { entries } = await fetchVersionDiff(promptId, versionId, currentVersionId);
+      setDiffEntries(entries);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't load that diff");
+      setDiffVersionId(null);
+    }
+  }
+
+  async function handlePromote(versionId: string) {
+    const target = versions.find((v) => v.id === versionId);
+    if (!target) return;
+    setPromotingId(versionId);
+    try {
+      await promoteVersion(versionId);
+      switchVersion(versionId, target.blocks, target.variables);
+      setDiffVersionId(null);
+      setDiffEntries(null);
+      toast.success("Promoted to current");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't promote that version");
+    } finally {
+      setPromotingId(null);
     }
   }
 
@@ -759,13 +867,162 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
             </button>
           )}
           {versionsOpen && (
-            <div className="flex max-h-24 flex-col gap-1 overflow-y-auto">
-              {versions.map((v) => (
-                <div key={v.id} className="flex items-center justify-between text-[11.5px]" style={{ color: "var(--dim2)" }}>
-                  <span>v{v.version_no}</span>
-                  <span className="truncate px-2">{v.change_note ?? "—"}</span>
+            <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+              {versions.map((v) => {
+                const isCurrent = v.id === currentVersionId;
+                return (
+                  <div key={v.id} className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between gap-2 text-[11.5px]" style={{ color: "var(--dim2)" }}>
+                      <span className="shrink-0" style={{ color: isCurrent ? "var(--accent)" : "var(--dim2)" }}>
+                        v{v.version_no}{isCurrent && " · current"}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate px-2">{v.change_note ?? "—"}</span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {!isCurrent && currentVersionId && (
+                          <button onClick={() => handleToggleDiff(v.id)} title="Diff vs current" className="hover:text-white">
+                            <GitCompare className="h-3 w-3" />
+                          </button>
+                        )}
+                        {!isCurrent && (
+                          <button
+                            onClick={() => handlePromote(v.id)}
+                            disabled={promotingId === v.id}
+                            className="rounded-[6px] border px-1.5 py-0.5 text-[10.5px] disabled:opacity-50"
+                            style={{ borderColor: "var(--edge-soft)" }}
+                          >
+                            Promote
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {diffVersionId === v.id && (
+                      <div className="flex flex-col gap-1 rounded-[8px] border p-2" style={{ borderColor: "var(--edge-soft)" }}>
+                        {diffEntries === null ? (
+                          <span className="text-[11px]" style={{ color: "var(--dim2)" }}>Loading…</span>
+                        ) : diffEntries.every((e) => !e.changed) ? (
+                          <span className="text-[11px]" style={{ color: "var(--dim2)" }}>No block differences.</span>
+                        ) : (
+                          diffEntries
+                            .filter((e) => e.changed)
+                            .map((e) => (
+                              <div key={e.blockType} className="flex flex-col gap-0.5">
+                                <span className="text-[10.5px] uppercase tracking-[0.05em]" style={{ color: "var(--dim2)" }}>
+                                  {BLOCK_LABELS[e.blockType]}
+                                </span>
+                                <p className="text-[11.5px] line-through" style={{ color: "oklch(0.7 0.14 25)" }}>
+                                  {e.before ?? "—"}
+                                </p>
+                                <p className="text-[11.5px]" style={{ color: "oklch(0.75 0.14 145)" }}>
+                                  {e.after ?? "—"}
+                                </p>
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {promptId && (
+            <button
+              onClick={() => setRunsOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-[11.5px]"
+              style={{ color: "var(--dim)" }}
+            >
+              {runsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {runs.length} run{runs.length === 1 ? "" : "s"}
+            </button>
+          )}
+          {runsOpen && (
+            <div className="flex max-h-56 flex-col gap-2 overflow-y-auto">
+              {runs.map((r) => (
+                <div key={r.id} className="flex flex-col gap-1.5 rounded-[9px] border p-2" style={{ borderColor: "var(--edge-soft)" }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10.5px]" style={{ color: "var(--dim2)" }}>
+                      {new Date(r.created_at).toLocaleString()}
+                    </span>
+                    <div className="flex gap-0.5">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button key={n} onClick={() => rateRun(r.id, n)}>
+                          <Star
+                            className="h-3 w-3"
+                            fill={(r.rating ?? 0) >= n ? "var(--accent)" : "none"}
+                            style={{ color: "var(--accent)" }}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {r.output && (
+                    <p className="line-clamp-2 text-[11.5px] leading-relaxed" style={{ color: "var(--dim)" }}>
+                      {r.output}
+                    </p>
+                  )}
+                  {r.output && (
+                    <div className="flex flex-wrap gap-1">
+                      {CRITIQUE_TAGS.map((c) => {
+                        const on = r.critique_tags.includes(c.tag);
+                        return (
+                          <button
+                            key={c.tag}
+                            onClick={() => handleToggleCritiqueTag(r.id, c.tag, r.critique_tags)}
+                            disabled={patchingRunId === r.id}
+                            className="rounded-full border px-2 py-0.5 text-[10.5px] disabled:opacity-50"
+                            style={{
+                              borderColor: "var(--edge-soft)",
+                              background: on ? "rgba(255,255,255,0.14)" : "transparent",
+                              color: on ? "#fff" : "var(--dim2)",
+                            }}
+                          >
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {patchingRunId === r.id && (
+                    <span className="text-[11px]" style={{ color: "var(--dim2)" }}>
+                      Proposing a patch…
+                    </span>
+                  )}
+                  {activePatch?.runId === r.id && (
+                    <div className="flex flex-col gap-1 rounded-[8px] border p-2" style={{ borderColor: "var(--edge)" }}>
+                      <span className="text-[10.5px] uppercase tracking-[0.05em]" style={{ color: "var(--dim2)" }}>
+                        {BLOCK_LABELS[activePatch.blockType]} — proposed patch
+                      </span>
+                      <p className="text-[11.5px] line-through" style={{ color: "oklch(0.7 0.14 25)" }}>
+                        {activePatch.before}
+                      </p>
+                      <p className="text-[11.5px]" style={{ color: "oklch(0.75 0.14 145)" }}>
+                        {activePatch.after}
+                      </p>
+                      <div className="flex gap-1.5 pt-0.5">
+                        <button
+                          onClick={handleAcceptPatch}
+                          className="h-6.5 flex-1 rounded-[7px] bg-white/92 text-[11.5px] font-medium text-[#111214]"
+                        >
+                          Accept — save as new version
+                        </button>
+                        <button
+                          onClick={() => setActivePatch(null)}
+                          className="h-6.5 rounded-[7px] border px-2 text-[11.5px]"
+                          style={{ borderColor: "var(--edge-soft)", color: "var(--dim)" }}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
+              {runs.length === 0 && (
+                <p className="text-[11.5px]" style={{ color: "var(--dim2)" }}>
+                  No runs yet — copy or open a deep link to start one.
+                </p>
+              )}
             </div>
           )}
 

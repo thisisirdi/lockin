@@ -1,18 +1,23 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type CompanionTab =
-  | "chat"
-  | "plan"
-  | "breakdown"
-  | "review"
-  | "notes"
-  | "refine"
-  | "unstick";
+export type CompanionTab = "chat" | "review";
+
+export interface PlanBlockData {
+  time: string;
+  title: string;
+  minutes: number;
+  note: string;
+  startable: boolean;
+}
 
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Structured results from a quick action, rendered instead of plain text when present. */
+  plan?: { blocks: PlanBlockData[]; message?: string };
+  breakdown?: { steps: string[] };
+  sources?: string[];
 }
 
 export interface ContextChip {
@@ -49,6 +54,16 @@ export const useCompanionStore = create<CompanionState>()(
       clearChips: () => set({ chips: [] }),
       addMessage: (msg) => set({ messages: [...get().messages, msg].slice(-40) }),
     }),
-    { name: "lockin-companion" }
+    {
+      name: "lockin-companion",
+      // A persisted activeTab from before the tab consolidation (e.g. "unstick")
+      // is no longer a valid CompanionTab — it wouldn't crash, but Companion.tsx's
+      // {activeTab === "chat" && ...} checks would all fail and render nothing.
+      merge: (persisted, current) => {
+        const p = persisted as Partial<CompanionState> | undefined;
+        const activeTab: CompanionTab = p?.activeTab === "review" ? "review" : "chat";
+        return { ...current, ...p, activeTab };
+      },
+    }
   )
 );

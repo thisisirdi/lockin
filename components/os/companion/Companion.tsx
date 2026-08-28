@@ -1,24 +1,15 @@
 "use client";
 
 import { OSWindow } from "@/components/os/Window";
+import { useOSStore } from "@/lib/store/os";
 import { useCompanionStore, type CompanionTab } from "@/lib/store/companion";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Blocks } from "lucide-react";
 import { ChatTab } from "@/components/os/companion/tabs/ChatTab";
-import { PlanTab } from "@/components/os/companion/tabs/PlanTab";
-import { BreakdownTab } from "@/components/os/companion/tabs/BreakdownTab";
 import { ReviewTab } from "@/components/os/companion/tabs/ReviewTab";
-import { AskNotesTab } from "@/components/os/companion/tabs/AskNotesTab";
-import { RefineTab } from "@/components/os/companion/tabs/RefineTab";
-import { UnstickTab } from "@/components/os/companion/tabs/UnstickTab";
 
 const TABS: { id: CompanionTab; label: string }[] = [
   { id: "chat", label: "Chat" },
-  { id: "plan", label: "Plan my day" },
-  { id: "breakdown", label: "Break down" },
   { id: "review", label: "Review" },
-  { id: "notes", label: "Ask notes" },
-  { id: "refine", label: "Refine" },
-  { id: "unstick", label: "Unstick" },
 ];
 
 export function Companion({
@@ -30,6 +21,7 @@ export function Companion({
 }) {
   const activeTab = useCompanionStore((s) => s.activeTab);
   const goTab = useCompanionStore((s) => s.goTab);
+  const showWin = useOSStore((s) => s.show);
 
   return (
     <OSWindow
@@ -58,17 +50,21 @@ export function Companion({
               </button>
             );
           })}
+          <button
+            onClick={() => showWin("studio", stage)}
+            title="Open the Studio window"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[9px] px-[11px] py-1.5 text-[12.5px]"
+            style={{ color: "var(--dim)" }}
+          >
+            <Blocks className="h-3 w-3" />
+            Studio
+          </button>
         </div>
         <div className="h-px shrink-0" style={{ background: "var(--edge-soft)" }} />
 
         <div className="flex min-h-0 flex-1 flex-col">
-          {activeTab === "chat" && <ChatTab />}
-          {activeTab === "plan" && <PlanTab stage={stage} />}
-          {activeTab === "breakdown" && <BreakdownTab />}
+          {activeTab === "chat" && <ChatTab stage={stage} />}
           {activeTab === "review" && <ReviewTab />}
-          {activeTab === "notes" && <AskNotesTab />}
-          {activeTab === "refine" && <RefineTab />}
-          {activeTab === "unstick" && <UnstickTab stage={stage} />}
         </div>
       </div>
     </OSWindow>

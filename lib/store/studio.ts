@@ -39,6 +39,8 @@ interface StudioState {
   lockBlock: (blockType: BlockType, body: string) => void;
   unlockBlock: (blockType: BlockType) => void;
   updateVariable: (key: string, patch: Partial<PromptVariable>) => void;
+  /** Replaces the whole blocks array, e.g. after accepting a critique-driven patch. Re-syncs variables. */
+  setBlocks: (blocks: PromptBlock[]) => void;
   addContextChip: (chip: StudioContextChip) => void;
   removeContextChip: (index: number) => void;
   attachContextBlock: (block: ContextBlock) => void;
@@ -46,6 +48,8 @@ interface StudioState {
   setCurrentVersionId: (id: string | null) => void;
   /** Records a save's result without touching in-progress context (unlike loadPrompt, which is for opening a different prompt entirely). */
   markSaved: (promptId: string, versionId: string) => void;
+  /** Switches to a different version's content (promote, or picking an old version) without resetting title/framework/context. */
+  switchVersion: (versionId: string, blocks: PromptBlock[], variables: PromptVariable[]) => void;
   loadPrompt: (opts: {
     promptId: string;
     currentVersionId: string | null;
@@ -107,6 +111,8 @@ export const useStudioStore = create<StudioState>()(
         });
       },
 
+      setBlocks: (blocks) => set({ blocks, variables: syncVariables(blocks, get().variables) }),
+
       addContextChip: (chip) => set({ contextChips: [...get().contextChips, chip] }),
       removeContextChip: (index) =>
         set({ contextChips: get().contextChips.filter((_, i) => i !== index) }),
@@ -120,6 +126,8 @@ export const useStudioStore = create<StudioState>()(
 
       setCurrentVersionId: (currentVersionId) => set({ currentVersionId }),
       markSaved: (promptId, versionId) => set({ promptId, currentVersionId: versionId }),
+      switchVersion: (versionId, blocks, variables) =>
+        set({ currentVersionId: versionId, blocks, variables }),
 
       loadPrompt: ({ promptId, currentVersionId, title, deliverableType, framework, blocks, variables }) =>
         set({
