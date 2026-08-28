@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { estimateTokens } from "@/lib/studio/resolve";
 import { parseJSON } from "@/lib/validation/parse";
-import { PromptCreateSchema } from "@/lib/validation/schemas";
+import { ContextBlockCreateSchema, ContextBlockKindSchema } from "@/lib/validation/schemas";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -11,23 +12,20 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
-  const tag = searchParams.get("tag");
-  const search = searchParams.get("q");
-  const includeArchived = searchParams.get("includeArchived") === "true";
+  const kind = ContextBlockKindSchema.safeParse(searchParams.get("kind"));
 
   let query = supabase
-    .from("prompts")
+    .from("context_blocks")
     .select("*")
     .eq("user_id", user.id)
+    .is("archived_at", null)
     .order("updated_at", { ascending: false });
 
-  if (!includeArchived) query = query.is("archived_at", null);
-  if (tag) query = query.contains("tags", [tag]);
-  if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+  if (kind.success) query = query.eq("kind", kind.data);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ prompts: data });
+  return NextResponse.json({ contextBlocks: data });
 }
 
 export async function POST(request: NextRequest) {
@@ -37,24 +35,16 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const parsed = await parseJSON(request, PromptCreateSchema);
+  const parsed = await parseJSON(request, ContextBlockCreateSchema);
   if (parsed.error) return parsed.error;
-  const { title, body, tags, description, deliverableType, frameworkId } = parsed.data;
+  const { kind, name, body } = parsed.data;
 
   const { data, error } = await supabase
-    .from("prompts")
-    .insert({
-      user_id: user.id,
-      title,
-      body,
-      tags: tags ?? [],
-      description: description ?? null,
-      deliverable_type: deliverableType ?? null,
-      framework_id: frameworkId ?? null,
-    })
+    .from("context_blocks")
+    .insert({ user_id: user.id, kind, name, body, token_estimate: estimateTokens(body) })
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ prompt: data }, { status: 201 });
+  return NextResponse.json({ contextBlock: data }, { status: 201 });
 }

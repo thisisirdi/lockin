@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import type { Database } from "@/lib/types/database";
+import { estimateTokens } from "@/lib/studio/resolve";
 import { parseJSON } from "@/lib/validation/parse";
-import { PromptUpdateSchema } from "@/lib/validation/schemas";
+import { ContextBlockUpdateSchema } from "@/lib/validation/schemas";
+import type { Database } from "@/lib/types/database";
 
-type PromptUpdate = Database["public"]["Tables"]["prompts"]["Update"];
+type ContextBlockUpdate = Database["public"]["Tables"]["context_blocks"]["Update"];
 
 export async function PATCH(
   request: NextRequest,
@@ -17,27 +18,21 @@ export async function PATCH(
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const parsed = await parseJSON(request, PromptUpdateSchema);
+  const parsed = await parseJSON(request, ContextBlockUpdateSchema);
   if (parsed.error) return parsed.error;
   const body = parsed.data;
-  const update: PromptUpdate = {};
-  if (body.title !== undefined) update.title = body.title;
-  if (body.body !== undefined) update.body = body.body;
-  if (body.tags !== undefined) update.tags = body.tags;
-  if (body.description !== undefined) update.description = body.description;
-  if (body.deliverableType !== undefined) update.deliverable_type = body.deliverableType;
-  if (body.archived !== undefined) update.archived_at = body.archived ? new Date().toISOString() : null;
-  if (body.incrementUsage) {
-    const { data: current } = await supabase
-      .from("prompts")
-      .select("usage_count")
-      .eq("id", id)
-      .single();
-    update.usage_count = (current?.usage_count ?? 0) + 1;
+
+  const update: ContextBlockUpdate = {};
+  if (body.kind !== undefined) update.kind = body.kind;
+  if (body.name !== undefined) update.name = body.name;
+  if (body.body !== undefined) {
+    update.body = body.body;
+    update.token_estimate = estimateTokens(body.body);
   }
+  if (body.archived !== undefined) update.archived_at = body.archived ? new Date().toISOString() : null;
 
   const { data, error } = await supabase
-    .from("prompts")
+    .from("context_blocks")
     .update(update)
     .eq("id", id)
     .eq("user_id", user.id)
@@ -45,7 +40,7 @@ export async function PATCH(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ prompt: data });
+  return NextResponse.json({ contextBlock: data });
 }
 
 export async function DELETE(
@@ -60,7 +55,7 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { error } = await supabase
-    .from("prompts")
+    .from("context_blocks")
     .delete()
     .eq("id", id)
     .eq("user_id", user.id);

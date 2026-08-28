@@ -1,17 +1,31 @@
 "use client";
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { OSWindow } from "@/components/os/Window";
 import { useNotes } from "@/lib/hooks/use-notes";
 import { useOSStore } from "@/lib/store/os";
 import { copyWithHistory } from "@/lib/copy";
-import { NotebookPen, Copy, Plus } from "lucide-react";
+import { fetchJSON } from "@/lib/fetch-json";
+import { toast } from "sonner";
+import { NotebookPen, Copy, Plus, Sparkles } from "lucide-react";
 
 export function NotesWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
   const visible = useOSStore((s) => s.windows.notes.visible);
   const { notes, createNote, updateNote } = useNotes("", null, visible);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftBody, setDraftBody] = useState("");
+  const queryClient = useQueryClient();
+
+  async function promoteToContext(noteId: string) {
+    try {
+      await fetchJSON(`/api/notes/${noteId}/promote`, { method: "POST" });
+      queryClient.invalidateQueries({ queryKey: ["context-blocks"] });
+      toast.success("Added to Context in Studio");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't promote that note");
+    }
+  }
 
   return (
     <OSWindow id="notes" icon={<NotebookPen className="h-[13px] w-[13px]" strokeWidth={1.9} />} stageRef={stageRef}>
@@ -39,12 +53,22 @@ export function NotesWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEle
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-[13px]">{note.title}</span>
-                  <button
-                    onClick={() => copyWithHistory(note.body, "note")}
-                    className="shrink-0 text-white/50 hover:text-white"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => promoteToContext(note.id)}
+                      title="Add to Context in Studio"
+                      className="text-white/50 hover:text-white"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => copyWithHistory(note.body, "note")}
+                      title="Copy"
+                      className="text-white/50 hover:text-white"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
                 {editing ? (
                   <textarea

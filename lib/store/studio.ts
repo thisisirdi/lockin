@@ -1,7 +1,16 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { applyFramework } from "@/lib/studio/frameworks";
-import type { BlockType, BlockState, PromptBlock, PromptVariable, Framework, DeliverableType } from "@/lib/types";
+import { syncVariables } from "@/lib/studio/variables";
+import type {
+  BlockType,
+  BlockState,
+  PromptBlock,
+  PromptVariable,
+  Framework,
+  DeliverableType,
+  ContextBlock,
+} from "@/lib/types";
 
 export interface StudioContextChip {
   label: string;
@@ -14,12 +23,14 @@ function nextState(body: string): BlockState {
 
 interface StudioState {
   promptId: string | null;
+  currentVersionId: string | null;
   title: string;
   deliverableType: DeliverableType | null;
   framework: Framework | null;
   blocks: PromptBlock[];
   variables: PromptVariable[];
   contextChips: StudioContextChip[];
+  attachedContextBlocks: ContextBlock[];
 
   setTitle: (title: string) => void;
   setDeliverableType: (type: DeliverableType | null) => void;
@@ -27,10 +38,17 @@ interface StudioState {
   updateBlockBody: (blockType: BlockType, body: string) => void;
   lockBlock: (blockType: BlockType, body: string) => void;
   unlockBlock: (blockType: BlockType) => void;
+  updateVariable: (key: string, patch: Partial<PromptVariable>) => void;
   addContextChip: (chip: StudioContextChip) => void;
   removeContextChip: (index: number) => void;
+  attachContextBlock: (block: ContextBlock) => void;
+  detachContextBlock: (id: string) => void;
+  setCurrentVersionId: (id: string | null) => void;
+  /** Records a save's result without touching in-progress context (unlike loadPrompt, which is for opening a different prompt entirely). */
+  markSaved: (promptId: string, versionId: string) => void;
   loadPrompt: (opts: {
     promptId: string;
+    currentVersionId: string | null;
     title: string;
     deliverableType: DeliverableType | null;
     framework: Framework | null;
@@ -44,36 +62,35 @@ export const useStudioStore = create<StudioState>()(
   persist(
     (set, get) => ({
       promptId: null,
+      currentVersionId: null,
       title: "",
       deliverableType: null,
       framework: null,
       blocks: [],
       variables: [],
       contextChips: [],
+      attachedContextBlocks: [],
 
       setTitle: (title) => set({ title }),
       setDeliverableType: (deliverableType) => set({ deliverableType }),
 
       setFramework: (framework) => {
-        set({ framework, blocks: applyFramework(get().blocks, framework) });
+        const blocks = applyFramework(get().blocks, framework);
+        set({ framework, blocks, variables: syncVariables(blocks, get().variables) });
       },
 
       updateBlockBody: (blockType, body) => {
-        set({
-          blocks: get().blocks.map((b) =>
-            b.block_type === blockType && b.state !== "locked"
-              ? { ...b, body, state: nextState(body) }
-              : b
-          ),
-        });
+        const blocks = get().blocks.map((b) =>
+          b.block_type === blockType && b.state !== "locked" ? { ...b, body, state: nextState(body) } : b
+        );
+        set({ blocks, variables: syncVariables(blocks, get().variables) });
       },
 
       lockBlock: (blockType, body) => {
-        set({
-          blocks: get().blocks.map((b) =>
-            b.block_type === blockType ? { ...b, body, state: "locked" } : b
-          ),
-        });
+        const blocks = get().blocks.map((b) =>
+          b.block_type === blockType ? { ...b, body, state: "locked" as const } : b
+        );
+        set({ blocks, variables: syncVariables(blocks, get().variables) });
       },
 
       unlockBlock: (blockType) => {
@@ -84,22 +101,50 @@ export const useStudioStore = create<StudioState>()(
         });
       },
 
+      updateVariable: (key, patch) => {
+        set({
+          variables: get().variables.map((v) => (v.key === key ? { ...v, ...patch } : v)),
+        });
+      },
+
       addContextChip: (chip) => set({ contextChips: [...get().contextChips, chip] }),
       removeContextChip: (index) =>
         set({ contextChips: get().contextChips.filter((_, i) => i !== index) }),
 
-      loadPrompt: ({ promptId, title, deliverableType, framework, blocks, variables }) =>
-        set({ promptId, title, deliverableType, framework, blocks, variables, contextChips: [] }),
+      attachContextBlock: (block) => {
+        if (get().attachedContextBlocks.some((b) => b.id === block.id)) return;
+        set({ attachedContextBlocks: [...get().attachedContextBlocks, block] });
+      },
+      detachContextBlock: (id) =>
+        set({ attachedContextBlocks: get().attachedContextBlocks.filter((b) => b.id !== id) }),
+
+      setCurrentVersionId: (currentVersionId) => set({ currentVersionId }),
+      markSaved: (promptId, versionId) => set({ promptId, currentVersionId: versionId }),
+
+      loadPrompt: ({ promptId, currentVersionId, title, deliverableType, framework, blocks, variables }) =>
+        set({
+          promptId,
+          currentVersionId,
+          title,
+          deliverableType,
+          framework,
+          blocks,
+          variables,
+          contextChips: [],
+          attachedContextBlocks: [],
+        }),
 
       reset: () =>
         set({
           promptId: null,
+          currentVersionId: null,
           title: "",
           deliverableType: null,
           framework: null,
           blocks: [],
           variables: [],
           contextChips: [],
+          attachedContextBlocks: [],
         }),
     }),
     { name: "lockin-studio" }

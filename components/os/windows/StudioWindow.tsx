@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { OSWindow } from "@/components/os/Window";
 import { useOSStore } from "@/lib/store/os";
 import { useStudioStore } from "@/lib/store/studio";
 import { useFrameworks } from "@/lib/hooks/use-frameworks";
 import { usePromptVersions } from "@/lib/hooks/use-prompt-versions";
-import { resolvePrompt } from "@/lib/studio/resolve";
+import { useContextBlocks } from "@/lib/hooks/use-context-blocks";
+import { useRuns } from "@/lib/hooks/use-runs";
+import { resolvePrompt, estimateTokens } from "@/lib/studio/resolve";
 import { streamRefineBlock } from "@/lib/studio/refine-stream";
 import { BLOCK_LABELS, DELIVERABLE_TYPES } from "@/lib/studio/constants";
 import { fetchJSON } from "@/lib/fetch-json";
 import { copyWithHistory } from "@/lib/copy";
-import type { Prompt, PromptVersion, DeliverableType } from "@/lib/types";
+import type { Prompt, PromptVersion, DeliverableType, ContextBlockKind } from "@/lib/types";
 import { toast } from "sonner";
 import {
   Blocks,
@@ -25,7 +27,27 @@ import {
   X,
   Plus,
   Copy,
+  ExternalLink,
 } from "lucide-react";
+
+const CONTEXT_TOKEN_BUDGET = 8000;
+
+const CONTEXT_KINDS: { value: ContextBlockKind; label: string }[] = [
+  { value: "company", label: "Company" },
+  { value: "product", label: "Product" },
+  { value: "customer", label: "Customer" },
+  { value: "stack", label: "Stack" },
+  { value: "audience", label: "Audience" },
+  { value: "voice", label: "Voice" },
+  { value: "glossary", label: "Glossary" },
+  { value: "snippet", label: "Snippet" },
+];
+
+const DEEP_LINKS = [
+  { label: "ChatGPT", url: "https://chat.openai.com/" },
+  { label: "Claude", url: "https://claude.ai/new" },
+  { label: "Gemini", url: "https://gemini.google.com/app" },
+];
 
 export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
   const visible = useOSStore((s) => s.windows.studio.visible);
@@ -38,17 +60,24 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
   const blocks = useStudioStore((s) => s.blocks);
   const variables = useStudioStore((s) => s.variables);
   const contextChips = useStudioStore((s) => s.contextChips);
+  const attachedContextBlocks = useStudioStore((s) => s.attachedContextBlocks);
   const setTitle = useStudioStore((s) => s.setTitle);
   const setDeliverableType = useStudioStore((s) => s.setDeliverableType);
   const setFramework = useStudioStore((s) => s.setFramework);
   const updateBlockBody = useStudioStore((s) => s.updateBlockBody);
   const lockBlock = useStudioStore((s) => s.lockBlock);
   const unlockBlock = useStudioStore((s) => s.unlockBlock);
+  const updateVariable = useStudioStore((s) => s.updateVariable);
   const removeContextChip = useStudioStore((s) => s.removeContextChip);
-  const loadPrompt = useStudioStore((s) => s.loadPrompt);
+  const attachContextBlock = useStudioStore((s) => s.attachContextBlock);
+  const detachContextBlock = useStudioStore((s) => s.detachContextBlock);
+  const currentVersionId = useStudioStore((s) => s.currentVersionId);
+  const markSaved = useStudioStore((s) => s.markSaved);
   const reset = useStudioStore((s) => s.reset);
 
   const { versions } = usePromptVersions(promptId);
+  const { contextBlocks, createContextBlock } = useContextBlocks(visible);
+  const { createRun, recordOutput } = useRuns();
   const queryClient = useQueryClient();
 
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
@@ -59,6 +88,14 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
   const [saving, setSaving] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [addingContext, setAddingContext] = useState(false);
+  const [newContextKind, setNewContextKind] = useState<ContextBlockKind>("snippet");
+  const [newContextName, setNewContextName] = useState("");
+  const [newContextBody, setNewContextBody] = useState("");
+  const [fillValues, setFillValues] = useState<Record<string, string>>({});
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
+  const [pastedOutput, setPastedOutput] = useState("");
 
   useEffect(() => {
     if (!framework && !promptId && frameworks.length > 0) {
@@ -71,10 +108,31 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
   const lockedCount = orderedBlocks.filter((b) => b.state === "locked").length;
   const totalSlots = framework?.slot_map.length ?? orderedBlocks.length;
 
+  const contextForResolve = useMemo(
+    () => [
+      ...attachedContextBlocks.map((c, i) => ({ name: c.name, body: c.body, position: i })),
+      ...contextChips.map((c, i) => ({ name: c.label, body: c.text, position: attachedContextBlocks.length + i })),
+    ],
+    [attachedContextBlocks, contextChips]
+  );
+
+  const contextTokenTotal = useMemo(
+    () => attachedContextBlocks.reduce((sum, c) => sum + (c.token_estimate || estimateTokens(c.body)), 0),
+    [attachedContextBlocks]
+  );
+
+  // Falls back to the variable's last-used default until the user overrides it this session.
+  const effectiveFillValues = useMemo(() => {
+    const values: Record<string, string> = {};
+    for (const v of variables) values[v.key] = fillValues[v.key] ?? v.default ?? "";
+    return values;
+  }, [variables, fillValues]);
+
   const resolved = resolvePrompt({
     blocks,
     variables,
-    context: contextChips.map((c, i) => ({ name: c.label, body: c.text, position: i })),
+    variableValues: effectiveFillValues,
+    context: contextForResolve,
   });
 
   function clearRefineState() {
@@ -167,14 +225,74 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
         `/api/prompts/${id}/versions`,
         { method: "POST", body: JSON.stringify({ blocks, variables }) }
       );
-      loadPrompt({ promptId: id, title, deliverableType, framework, blocks, variables });
+      markSaved(id, version.id);
       queryClient.invalidateQueries({ queryKey: ["prompts"] });
       queryClient.invalidateQueries({ queryKey: ["prompt-versions", id] });
+      setLastRunId(null);
+      setPastedOutput("");
       toast.success(`Saved v${version.version_no}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't save this version");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function rememberFillValues() {
+    for (const v of variables) {
+      const value = effectiveFillValues[v.key];
+      if (value && value !== v.default) updateVariable(v.key, { default: value });
+    }
+  }
+
+  async function handleCopy() {
+    if (!resolved.resolvedPrompt) return;
+    rememberFillValues();
+    await copyWithHistory(resolved.resolvedPrompt, "prompt");
+    await maybeStartRun();
+  }
+
+  async function handleOpenDeepLink(url: string) {
+    if (!resolved.resolvedPrompt) return;
+    rememberFillValues();
+    await copyWithHistory(resolved.resolvedPrompt, "prompt");
+    window.open(url, "_blank", "noopener,noreferrer");
+    toast("Prompt copied — paste it in", { description: "Opened in a new tab." });
+    await maybeStartRun();
+  }
+
+  async function maybeStartRun() {
+    if (!currentVersionId) return;
+    try {
+      const run = await createRun(currentVersionId, resolved.resolvedPrompt, effectiveFillValues);
+      setLastRunId(run.id);
+    } catch {
+      // Recording a run is a nice-to-have alongside copy — a failure here shouldn't block the copy itself.
+    }
+  }
+
+  async function handleRecordOutput() {
+    if (!lastRunId || !pastedOutput.trim()) return;
+    try {
+      await recordOutput(lastRunId, pastedOutput.trim());
+      toast.success("Run saved");
+      setPastedOutput("");
+      setLastRunId(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't save the run");
+    }
+  }
+
+  async function handleCreateContextBlock() {
+    if (!newContextName.trim()) return;
+    try {
+      const block = await createContextBlock(newContextKind, newContextName.trim(), newContextBody.trim());
+      attachContextBlock(block);
+      setNewContextName("");
+      setNewContextBody("");
+      setAddingContext(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't create that context block");
     }
   }
 
@@ -427,6 +545,189 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
               Pick a framework above to start.
             </p>
           )}
+
+          {variables.length > 0 && (
+            <div className="flex flex-col gap-1.5 rounded-[10px] border p-2.5" style={{ borderColor: "var(--edge-soft)" }}>
+              <span className="text-[11px] uppercase tracking-[0.06em]" style={{ color: "var(--dim2)" }}>
+                Variables
+              </span>
+              {variables.map((v) => (
+                <div key={v.key} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-20 shrink-0 truncate font-mono text-[11.5px]" style={{ color: "var(--dim)" }}>
+                      {"{{" + v.key + "}}"}
+                    </span>
+                    <select
+                      value={v.type}
+                      onChange={(e) => updateVariable(v.key, { type: e.target.value as typeof v.type })}
+                      className="h-6.5 rounded-[6px] border bg-transparent px-1 text-[11px] outline-none"
+                      style={{ borderColor: "var(--edge-soft)", color: "var(--dim)" }}
+                    >
+                      <option value="text" className="bg-[#141518] text-white">text</option>
+                      <option value="number" className="bg-[#141518] text-white">number</option>
+                      <option value="boolean" className="bg-[#141518] text-white">yes/no</option>
+                    </select>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px]" style={{ color: "var(--dim2)" }}>
+                      <input
+                        type="checkbox"
+                        checked={v.required}
+                        onChange={(e) => updateVariable(v.key, { required: e.target.checked })}
+                      />
+                      required
+                    </label>
+                  </div>
+                  {v.type === "boolean" ? (
+                    <select
+                      value={effectiveFillValues[v.key] ?? ""}
+                      onChange={(e) => setFillValues((prev) => ({ ...prev, [v.key]: e.target.value }))}
+                      className="h-7 rounded-[7px] border bg-transparent px-2 text-[12px] outline-none"
+                      style={{ borderColor: "var(--edge-soft)" }}
+                    >
+                      <option value="" className="bg-[#141518] text-white">—</option>
+                      <option value="yes" className="bg-[#141518] text-white">yes</option>
+                      <option value="no" className="bg-[#141518] text-white">no</option>
+                    </select>
+                  ) : (
+                    <input
+                      type={v.type === "number" ? "number" : "text"}
+                      placeholder={v.label}
+                      value={effectiveFillValues[v.key] ?? ""}
+                      onChange={(e) => setFillValues((prev) => ({ ...prev, [v.key]: e.target.value }))}
+                      className="h-7 rounded-[7px] border bg-transparent px-2 text-[12px] outline-none placeholder:text-white/35"
+                      style={{ borderColor: "var(--edge-soft)" }}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1.5 rounded-[10px] border p-2.5" style={{ borderColor: "var(--edge-soft)" }}>
+            <button
+              onClick={() => setContextOpen((v) => !v)}
+              className="flex items-center justify-between"
+            >
+              <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.06em]" style={{ color: "var(--dim2)" }}>
+                {contextOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                Context · {attachedContextBlocks.length} attached
+              </span>
+              <span
+                className="text-[11px]"
+                style={{ color: contextTokenTotal > CONTEXT_TOKEN_BUDGET ? "oklch(0.75 0.15 30)" : "var(--dim2)" }}
+              >
+                ~{contextTokenTotal} tokens
+              </span>
+            </button>
+
+            {contextOpen && (
+              <div className="flex flex-col gap-2 pt-1">
+                {contextTokenTotal > CONTEXT_TOKEN_BUDGET && (
+                  <p className="text-[11px]" style={{ color: "oklch(0.75 0.15 30)" }}>
+                    Attached context is over the {CONTEXT_TOKEN_BUDGET.toLocaleString()}-token budget — consider detaching something.
+                  </p>
+                )}
+
+                {attachedContextBlocks.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {attachedContextBlocks.map((c) => (
+                      <span
+                        key={c.id}
+                        title={c.body}
+                        className="flex items-center gap-1.5 rounded-[8px] border py-[3px] pl-2.5 pr-2 text-[11.5px] text-white/85"
+                        style={{ borderColor: "var(--edge-soft)", background: "rgba(255,255,255,0.09)" }}
+                      >
+                        {c.name}
+                        <button onClick={() => detachContextBlock(c.id)} className="text-[var(--dim2)] hover:text-white">
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex max-h-28 flex-col gap-0.5 overflow-y-auto">
+                  {contextBlocks
+                    .filter((c) => !attachedContextBlocks.some((a) => a.id === c.id))
+                    .map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => attachContextBlock(c)}
+                        className="flex items-center justify-between rounded-[7px] px-2 py-1.5 text-left text-[12px] hover:bg-white/[0.06]"
+                        style={{ color: "var(--dim)" }}
+                      >
+                        <span className="truncate">{c.name}</span>
+                        <span className="shrink-0 text-[10.5px]" style={{ color: "var(--dim2)" }}>
+                          {c.kind}
+                        </span>
+                      </button>
+                    ))}
+                  {contextBlocks.length === 0 && !addingContext && (
+                    <p className="py-1 text-[11.5px]" style={{ color: "var(--dim2)" }}>
+                      No saved context yet.
+                    </p>
+                  )}
+                </div>
+
+                {addingContext ? (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex gap-1.5">
+                      <select
+                        value={newContextKind}
+                        onChange={(e) => setNewContextKind(e.target.value as ContextBlockKind)}
+                        className="h-7 rounded-[7px] border bg-transparent px-1.5 text-[12px] outline-none"
+                        style={{ borderColor: "var(--edge-soft)", color: "var(--dim)" }}
+                      >
+                        {CONTEXT_KINDS.map((k) => (
+                          <option key={k.value} value={k.value} className="bg-[#141518] text-white">
+                            {k.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        autoFocus
+                        placeholder="Name"
+                        value={newContextName}
+                        onChange={(e) => setNewContextName(e.target.value)}
+                        className="h-7 flex-1 rounded-[7px] border bg-transparent px-2 text-[12px] outline-none placeholder:text-white/35"
+                        style={{ borderColor: "var(--edge-soft)" }}
+                      />
+                    </div>
+                    <textarea
+                      placeholder="What should Studio know?"
+                      value={newContextBody}
+                      onChange={(e) => setNewContextBody(e.target.value)}
+                      className="min-h-14 resize-none rounded-[7px] border bg-transparent p-2 text-[12px] outline-none placeholder:text-white/35"
+                      style={{ borderColor: "var(--edge-soft)" }}
+                    />
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={handleCreateContextBlock}
+                        disabled={!newContextName.trim()}
+                        className="h-7 flex-1 rounded-[7px] bg-white/92 text-[12px] font-medium text-[#111214] disabled:opacity-50"
+                      >
+                        Save &amp; attach
+                      </button>
+                      <button
+                        onClick={() => setAddingContext(false)}
+                        className="h-7 rounded-[7px] border px-2.5 text-[12px]"
+                        style={{ borderColor: "var(--edge-soft)", color: "var(--dim)" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingContext(true)}
+                    className="flex items-center justify-center gap-1.5 rounded-[7px] border py-1.5 text-[12px]"
+                    style={{ borderColor: "var(--edge-soft)", color: "var(--dim)" }}
+                  >
+                    <Plus className="h-3 w-3" /> New context block
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex shrink-0 flex-col gap-1.5 border-t px-3.5 py-2.5" style={{ borderColor: "var(--edge-soft)" }}>
@@ -468,19 +769,50 @@ export function StudioWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
             </div>
           )}
 
+          {lastRunId && (
+            <div className="flex gap-1.5">
+              <input
+                placeholder="Paste the output here to save this run…"
+                value={pastedOutput}
+                onChange={(e) => setPastedOutput(e.target.value)}
+                className="h-8 flex-1 rounded-[9px] border bg-transparent px-2.5 text-[12px] outline-none placeholder:text-white/35"
+                style={{ borderColor: "var(--edge-soft)" }}
+              />
+              <button
+                onClick={handleRecordOutput}
+                disabled={!pastedOutput.trim()}
+                className="h-8 shrink-0 rounded-[9px] border px-3 text-[12px] disabled:opacity-40"
+                style={{ borderColor: "var(--edge-soft)", color: "var(--dim)" }}
+              >
+                Save run
+              </button>
+            </div>
+          )}
+
           <div className="flex gap-1.5">
             <button
-              onClick={() => {
-                if (!resolved.resolvedPrompt) return;
-                copyWithHistory(resolved.resolvedPrompt, "prompt");
-              }}
+              onClick={handleCopy}
               disabled={!resolved.resolvedPrompt}
+              title="Copy resolved prompt"
               className="flex h-8 items-center gap-1.5 rounded-[9px] border px-3 text-[12.5px] disabled:opacity-40"
               style={{ borderColor: "var(--edge-soft)", color: "rgba(255,255,255,0.85)" }}
             >
               <Copy className="h-3.5 w-3.5" />
               Copy
             </button>
+            {DEEP_LINKS.map((d) => (
+              <button
+                key={d.label}
+                onClick={() => handleOpenDeepLink(d.url)}
+                disabled={!resolved.resolvedPrompt}
+                title={`Copy and open ${d.label}`}
+                className="flex h-8 items-center gap-1 rounded-[9px] border px-2.5 text-[12px] disabled:opacity-40"
+                style={{ borderColor: "var(--edge-soft)", color: "var(--dim)" }}
+              >
+                {d.label}
+                <ExternalLink className="h-3 w-3" />
+              </button>
+            ))}
             <button
               onClick={handleSave}
               disabled={saving || lockedCount === 0}

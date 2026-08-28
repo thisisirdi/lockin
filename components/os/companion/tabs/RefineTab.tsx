@@ -11,7 +11,7 @@ export function RefineTab() {
   const [rawInput, setRawInput] = useState("");
   const [refined, setRefined] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { createPrompt } = usePrompts(false);
+  const { createPrompt } = usePrompts("", null, false);
 
   async function refine() {
     if (!rawInput.trim()) return;

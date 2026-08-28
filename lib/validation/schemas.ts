@@ -49,7 +49,10 @@ export const PromptUpdateSchema = z.object({
   title: z.string().trim().min(1).optional(),
   body: z.string().trim().min(1).optional(),
   tags: z.array(z.string()).optional(),
+  description: z.string().trim().optional(),
+  deliverableType: DeliverableTypeSchema.nullable().optional(),
   incrementUsage: z.boolean().optional(),
+  archived: z.boolean().optional(),
 });
 
 export const CategoryCreateSchema = z.object({
@@ -174,4 +177,41 @@ export const VersionCreateSchema = z.object({
   variables: z.array(PromptVariableSchema).optional(),
   changeNote: z.string().trim().optional(),
   createdFromRunId: z.string().uuid().nullable().optional(),
+});
+
+export const ContextBlockKindSchema = z.enum([
+  "company",
+  "product",
+  "customer",
+  "stack",
+  "audience",
+  "voice",
+  "glossary",
+  "snippet",
+]);
+
+export const ContextBlockCreateSchema = z.object({
+  kind: ContextBlockKindSchema,
+  name: z.string().trim().min(1),
+  body: z.string().trim().optional().default(""),
+});
+
+export const ContextBlockUpdateSchema = z.object({
+  kind: ContextBlockKindSchema.optional(),
+  name: z.string().trim().min(1).optional(),
+  body: z.string().trim().optional(),
+  archived: z.boolean().optional(),
+});
+
+export const RunCreateSchema = z.object({
+  promptVersionId: z.string().uuid(),
+  model: z.string().trim().optional(),
+  variableValues: z.record(z.string(), z.string()).optional(),
+  resolvedPrompt: z.string(),
+});
+
+export const RunUpdateSchema = z.object({
+  output: z.string().optional(),
+  rating: z.number().int().min(1).max(5).optional(),
+  critiqueTags: z.array(z.string()).optional(),
 });
