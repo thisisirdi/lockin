@@ -9,6 +9,7 @@ import {
   type WindowGeometry,
   type LayoutWinSpec,
 } from "@/lib/os/types";
+import { findFreeSpot as findFreeSpotAmong } from "@/lib/os/layout";
 
 const DEFAULT_GEOMETRY: WindowGeometry = { x: 40, y: 40, w: 300, h: null };
 
@@ -22,6 +23,19 @@ function initialWindows(): Record<WindowId, WindowState> {
 
 function fitFactor(stageW: number, stageH: number) {
   return Math.max(0.6, Math.min(1, stageW / REFERENCE_STAGE.width, stageH / REFERENCE_STAGE.height));
+}
+
+/** First free spot for `id`'s window among the other currently-visible windows. */
+function findFreeSpot(
+  windows: Record<WindowId, WindowState>,
+  selfId: WindowId,
+  size: { w: number; h: number },
+  stage: { width: number; height: number }
+): { x: number; y: number } {
+  const occupied = Object.entries(windows)
+    .filter(([wid, w]) => wid !== selfId && w.visible)
+    .map(([, w]) => ({ x: w.geometry.x, y: w.geometry.y, w: w.geometry.w, h: w.geometry.h ?? 200 }));
+  return findFreeSpotAmong(occupied, size, stage);
 }
 
 interface OSState {
@@ -78,8 +92,7 @@ export const useOSStore = create<OSState>()(
 
       show: (id, stage) => {
         const w = get().windows[id];
-        const clampedX = Math.max(12, Math.min(w.geometry.x, stage.width - 240));
-        const clampedY = Math.max(8, Math.min(w.geometry.y, stage.height - 120));
+        const spot = findFreeSpot(get().windows, id, { w: w.geometry.w, h: w.geometry.h ?? 200 }, stage);
         set((s) => ({
           windows: {
             ...s.windows,
@@ -87,7 +100,7 @@ export const useOSStore = create<OSState>()(
               ...w,
               visible: true,
               minimized: false,
-              geometry: { ...w.geometry, x: clampedX, y: clampedY },
+              geometry: { ...w.geometry, x: spot.x, y: spot.y },
             },
           },
         }));
@@ -102,7 +115,7 @@ export const useOSStore = create<OSState>()(
 
       toggle: (id, stage) => {
         const w = get().windows[id];
-        if (w.visible) get().focus(id);
+        if (w.visible) get().hide(id, true);
         else get().show(id, stage);
       },
 
@@ -193,6 +206,18 @@ export const useOSStore = create<OSState>()(
         font: s.font,
         wallpaper: s.wallpaper,
       }),
+      // A persisted blob predating a new WINDOW_IDS entry (e.g. "studio") won't
+      // have that key. persist's default merge shallow-replaces `windows`
+      // wholesale, leaving it undefined for the new id — fill gaps from the
+      // fresh default state instead of trusting the persisted shape.
+      merge: (persisted, current) => {
+        const p = persisted as Partial<OSState> | undefined;
+        return {
+          ...current,
+          ...p,
+          windows: { ...current.windows, ...(p?.windows ?? {}) },
+        };
+      },
     }
   )
 );
