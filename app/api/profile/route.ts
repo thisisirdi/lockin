@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/types/database";
+import { parseJSON } from "@/lib/validation/parse";
+import { ProfileUpdateSchema } from "@/lib/validation/schemas";
 
 type ProfileUpdate = Database["public"]["Tables"]["profiles"]["Update"];
 
@@ -28,7 +30,9 @@ export async function PATCH(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
+  const parsed = await parseJSON(request, ProfileUpdateSchema);
+  if (parsed.error) return parsed.error;
+  const body = parsed.data;
   const update: ProfileUpdate = {};
   if (body.pomodoroSettings !== undefined) update.pomodoro_settings = body.pomodoroSettings;
   if (body.roomSettings !== undefined) update.room_settings = body.roomSettings;

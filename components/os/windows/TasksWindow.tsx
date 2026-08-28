@@ -3,10 +3,12 @@
 import { useMemo, useState } from "react";
 import { OSWindow } from "@/components/os/Window";
 import { useTasks } from "@/lib/hooks/use-tasks";
+import { useOSStore } from "@/lib/store/os";
 import { CheckSquare, Check } from "lucide-react";
 
 export function TasksWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
-  const { tasks, addTask, setStatus } = useTasks();
+  const visible = useOSStore((s) => s.windows.tasks.visible);
+  const { tasks, addTask, setStatus } = useTasks(visible);
   const [title, setTitle] = useState("");
 
   const todo = useMemo(() => tasks.filter((t) => t.status === "todo"), [tasks]);

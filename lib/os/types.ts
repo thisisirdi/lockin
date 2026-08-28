@@ -8,6 +8,7 @@ export const WINDOW_IDS = [
   "notes",
   "prompts",
   "clipboard",
+  "studio",
 ] as const;
 
 export type WindowId = (typeof WINDOW_IDS)[number];
@@ -41,6 +42,7 @@ export const WINDOW_META: Record<WindowId, WindowMeta> = {
   notes: { id: "notes", label: "Notes" },
   prompts: { id: "prompts", label: "Prompts" },
   clipboard: { id: "clipboard", label: "Clipboard" },
+  studio: { id: "studio", label: "Studio" },
 };
 
 /** [x, y, width, height|null, align?] in the 1240x780 reference stage. */
@@ -68,6 +70,7 @@ export const LAYOUTS: Record<string, LayoutDef> = {
       notes: null,
       prompts: null,
       clipboard: null,
+      studio: null,
     },
   },
   deep: {
@@ -82,6 +85,7 @@ export const LAYOUTS: Record<string, LayoutDef> = {
       notes: null,
       prompts: null,
       clipboard: null,
+      studio: null,
     },
   },
   writing: {
@@ -96,6 +100,7 @@ export const LAYOUTS: Record<string, LayoutDef> = {
       prompts: null,
       ambient: "min",
       clipboard: null,
+      studio: null,
     },
   },
   planning: {
@@ -109,6 +114,22 @@ export const LAYOUTS: Record<string, LayoutDef> = {
       ambient: null,
       notes: null,
       prompts: null,
+      clipboard: null,
+      studio: null,
+    },
+  },
+  studio: {
+    name: "Studio",
+    wins: {
+      studio: [32, 28, 600, 640],
+      prompts: [648, 28, 280, 300],
+      notes: [648, 344, 280, 300],
+      ai: [944, 28, 264, 640],
+      timer: "min",
+      clock: null,
+      freedom: null,
+      ambient: null,
+      tasks: null,
       clipboard: null,
     },
   },

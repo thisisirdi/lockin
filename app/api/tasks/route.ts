@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { parseJSON } from "@/lib/validation/parse";
+import { TaskCreateSchema } from "@/lib/validation/schemas";
 
 export async function GET() {
   const supabase = await createClient();
@@ -25,8 +27,9 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { title, type } = await request.json();
-  if (!title) return NextResponse.json({ error: "title is required" }, { status: 400 });
+  const parsed = await parseJSON(request, TaskCreateSchema);
+  if (parsed.error) return parsed.error;
+  const { title, type } = parsed.data;
 
   const { data, error } = await supabase
     .from("tasks")

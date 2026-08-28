@@ -3,17 +3,19 @@
 import { useState } from "react";
 import { OSWindow } from "@/components/os/Window";
 import { usePrompts } from "@/lib/hooks/use-prompts";
+import { useOSStore } from "@/lib/store/os";
 import { copyWithHistory } from "@/lib/copy";
-import { Sparkles, Copy, Plus } from "lucide-react";
+import { BookOpenText, Copy, Plus } from "lucide-react";
 
 export function PromptsWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
-  const { prompts, createPrompt, trackUsage } = usePrompts();
+  const visible = useOSStore((s) => s.windows.prompts.visible);
+  const { prompts, createPrompt, trackUsage } = usePrompts(visible);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
 
   return (
-    <OSWindow id="prompts" icon={<Sparkles className="h-[13px] w-[13px]" strokeWidth={1.9} />} stageRef={stageRef}>
+    <OSWindow id="prompts" icon={<BookOpenText className="h-[13px] w-[13px]" strokeWidth={1.9} />} stageRef={stageRef}>
       <div className="flex flex-col gap-2 px-3.5 pb-3.5 pt-3">
         {adding ? (
           <div className="flex flex-col gap-1.5">

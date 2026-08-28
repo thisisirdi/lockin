@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { refinePrompt } from "@/lib/anthropic/refine-prompt";
+import { hasAnyKey, userKeyFromRequest } from "@/lib/anthropic/client";
+import { parseJSON } from "@/lib/validation/parse";
+import { RefinePromptSchema } from "@/lib/validation/schemas";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -9,35 +12,30 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { rawInput, originalPromptId } = await request.json();
-  if (!rawInput || typeof rawInput !== "string" || !rawInput.trim()) {
-    return NextResponse.json({ error: "rawInput is required" }, { status: 400 });
-  }
+  const parsed = await parseJSON(request, RefinePromptSchema);
+  if (parsed.error) return parsed.error;
+  const { rawInput, originalPromptId } = parsed.data;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const userKey = userKeyFromRequest(request);
+  if (!hasAnyKey(userKey)) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not configured on the server" },
+      { error: "No Anthropic API key configured. Add one in Settings." },
       { status: 500 }
     );
   }
 
   try {
-    const refined = await refinePrompt(rawInput);
+    const refined = await refinePrompt(rawInput, userKey);
 
-    const { data, error } = await supabase
-      .from("prompt_refinements")
-      .insert({
-        user_id: user.id,
-        original_prompt_id: originalPromptId ?? null,
-        raw_input: rawInput,
-        refined_output: refined,
-      })
-      .select()
-      .single();
+    await supabase.from("prompt_block_refinements").insert({
+      user_id: user.id,
+      prompt_id: originalPromptId ?? null,
+      block_type: "task",
+      before: rawInput,
+      after: refined,
+    });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    return NextResponse.json({ refined, refinement: data });
+    return NextResponse.json({ refined });
   } catch (err) {
     console.error("refine-prompt failed", err);
     return NextResponse.json({ error: "Refinement failed" }, { status: 502 });

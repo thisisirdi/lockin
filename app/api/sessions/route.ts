@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { parseJSON } from "@/lib/validation/parse";
+import { SessionCreateSchema } from "@/lib/validation/schemas";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -35,7 +37,8 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
+  const parsed = await parseJSON(request, SessionCreateSchema);
+  if (parsed.error) return parsed.error;
   const {
     categoryId,
     projectId,
@@ -45,11 +48,7 @@ export async function POST(request: NextRequest) {
     endedAt,
     durationSeconds,
     status,
-  } = body;
-
-  if (!mode || !startedAt || !endedAt || durationSeconds == null || !status) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-  }
+  } = parsed.data;
 
   const { data, error } = await supabase
     .from("sessions")

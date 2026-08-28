@@ -1,36 +1,41 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchJSON } from "@/lib/fetch-json";
 import type { ClipboardItem } from "@/lib/types";
 
-export function useClipboardHistory() {
-  const [items, setItems] = useState<ClipboardItem[]>([]);
-  const [loading, setLoading] = useState(true);
+const clipboardKey = ["clipboard"] as const;
 
-  const load = useCallback(async () => {
-    try {
-      const { items } = await fetchJSON<{ items: ClipboardItem[] }>("/api/clipboard");
-      setItems(items);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export function useClipboardHistory(enabled = true) {
+  const queryClient = useQueryClient();
 
-  const refresh = useCallback(() => {
-    setLoading(true);
-    load();
-  }, [load]);
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: clipboardKey,
+    queryFn: () => fetchJSON<{ items: ClipboardItem[] }>("/api/clipboard").then((r) => r.items),
+    enabled,
+  });
+  const items = data ?? [];
 
-  const remove = useCallback(async (id: string) => {
-    await fetchJSON(`/api/clipboard?id=${id}`, { method: "DELETE" });
-    setItems((prev) => prev.filter((i) => i.id !== id));
-  }, []);
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => fetchJSON(`/api/clipboard?id=${id}`, { method: "DELETE" }),
+    onSuccess: (_data, id) => {
+      queryClient.setQueryData<ClipboardItem[]>(clipboardKey, (prev) =>
+        (prev ?? []).filter((i) => i.id !== id)
+      );
+    },
+  });
 
-  const clear = useCallback(async () => {
-    await fetchJSON("/api/clipboard", { method: "DELETE" });
-    setItems([]);
-  }, []);
+  const clearMutation = useMutation({
+    mutationFn: () => fetchJSON("/api/clipboard", { method: "DELETE" }),
+    onSuccess: () => queryClient.setQueryData<ClipboardItem[]>(clipboardKey, []),
+  });
 
-  return { items, loading, load, refresh, remove, clear };
+  return {
+    items,
+    loading: isLoading,
+    load: () => refetch(),
+    refresh: () => refetch(),
+    remove: (id: string) => removeMutation.mutateAsync(id),
+    clear: () => clearMutation.mutateAsync(),
+  };
 }

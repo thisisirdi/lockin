@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { fetchJSON } from "@/lib/fetch-json";
 
 export interface Stats {
@@ -11,12 +11,11 @@ export interface Stats {
   dailyMinutes: Record<string, number>;
 }
 
-export function useStats() {
-  const [stats, setStats] = useState<Stats | null>(null);
-
-  useEffect(() => {
-    fetchJSON<Stats>("/api/stats").then(setStats).catch(() => {});
-  }, []);
-
-  return stats;
+export function useStats(enabled = true) {
+  const { data } = useQuery({
+    queryKey: ["stats"],
+    queryFn: () => fetchJSON<Stats>("/api/stats"),
+    enabled,
+  });
+  return data ?? null;
 }

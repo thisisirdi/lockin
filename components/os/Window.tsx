@@ -4,12 +4,26 @@ import { useRef, type ReactNode } from "react";
 import { useOSStore } from "@/lib/store/os";
 import { WINDOW_META, type WindowId } from "@/lib/os/types";
 import { useCompanionStore } from "@/lib/store/companion";
+import { useStudioStore } from "@/lib/store/studio";
 import { resolveWindowContext } from "@/lib/companion/resolve-window-context";
 import { collectSnapTargets, snapPosition, snapSingleEdge } from "@/lib/os/snap";
 import { Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const DROPPABLE: WindowId[] = ["tasks", "notes", "timer", "freedom", "prompts"];
+
+/** Windows that accept a dragged window as attached context, and what happens on drop. */
+const DROP_TARGETS: WindowId[] = ["ai", "studio"];
+
+function attachToTarget(targetId: WindowId, chip: { label: string; text: string }) {
+  if (targetId === "ai") {
+    useCompanionStore.getState().goTab("chat");
+    useCompanionStore.getState().addChip(chip);
+  } else if (targetId === "studio") {
+    useStudioStore.getState().addContextChip(chip);
+  }
+  useOSStore.getState().focus(targetId);
+}
 
 const MIN_W = 240;
 const MIN_H = 150;
@@ -63,7 +77,7 @@ export function OSWindow({
     const dx = e.clientX - r.left;
     const dy = e.clientY - r.top;
     const droppable = DROPPABLE.includes(id);
-    let overAI = false;
+    let overTarget: WindowId | null = null;
 
     function move(ev: PointerEvent) {
       let x = ev.clientX - s.left - dx;
@@ -82,14 +96,15 @@ export function OSWindow({
         elRef.current.style.top = `${y}px`;
       }
       if (droppable) {
-        const aiEl = document.querySelector('[data-os-window="ai"]');
-        if (aiEl) {
-          const ar = aiEl.getBoundingClientRect();
-          overAI =
-            ev.clientX > ar.left && ev.clientX < ar.right && ev.clientY > ar.top && ev.clientY < ar.bottom;
-          (aiEl as HTMLElement).style.outline = overAI
-            ? "1.5px dashed var(--accent)"
-            : "";
+        overTarget = null;
+        for (const targetId of DROP_TARGETS) {
+          const targetEl = document.querySelector(`[data-os-window="${targetId}"]`) as HTMLElement | null;
+          if (!targetEl) continue;
+          const tr = targetEl.getBoundingClientRect();
+          const hit =
+            ev.clientX > tr.left && ev.clientX < tr.right && ev.clientY > tr.top && ev.clientY < tr.bottom;
+          targetEl.style.outline = hit ? "1.5px dashed var(--accent)" : "";
+          if (hit) overTarget = targetId;
         }
       }
     }
@@ -101,14 +116,12 @@ export function OSWindow({
       const r2 = elRef.current!.getBoundingClientRect();
       commitGeometry(id, { x: r2.left - s2.left, y: r2.top - s2.top });
 
-      if (droppable && overAI) {
-        const aiEl = document.querySelector('[data-os-window="ai"]') as HTMLElement | null;
-        if (aiEl) aiEl.style.outline = "";
-        const companion = useCompanionStore.getState();
-        companion.goTab("chat");
-        useOSStore.getState().focus("ai");
+      if (droppable && overTarget) {
+        const targetId = overTarget;
+        const targetEl = document.querySelector(`[data-os-window="${targetId}"]`) as HTMLElement | null;
+        if (targetEl) targetEl.style.outline = "";
         resolveWindowContext(id).then((chip) => {
-          if (chip) companion.addChip(chip);
+          if (chip) attachToTarget(targetId, chip);
         });
       }
     }

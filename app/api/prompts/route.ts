@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { parseJSON } from "@/lib/validation/parse";
+import { PromptCreateSchema } from "@/lib/validation/schemas";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -31,14 +33,21 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { title, body, tags } = await request.json();
-  if (!title || !body) {
-    return NextResponse.json({ error: "title and body are required" }, { status: 400 });
-  }
+  const parsed = await parseJSON(request, PromptCreateSchema);
+  if (parsed.error) return parsed.error;
+  const { title, body, tags, description, deliverableType, frameworkId } = parsed.data;
 
   const { data, error } = await supabase
     .from("prompts")
-    .insert({ user_id: user.id, title, body, tags: tags ?? [] })
+    .insert({
+      user_id: user.id,
+      title,
+      body,
+      tags: tags ?? [],
+      description: description ?? null,
+      deliverable_type: deliverableType ?? null,
+      framework_id: frameworkId ?? null,
+    })
     .select()
     .single();
 

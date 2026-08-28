@@ -1,6 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getAnthropicClient, firstText, COMPANION_MODEL } from "@/lib/anthropic/client";
+import {
+  getAnthropicClient,
+  firstText,
+  COMPANION_MODEL,
+  userKeyFromRequest,
+} from "@/lib/anthropic/client";
 import { getOpenTasks } from "@/lib/companion/context";
 
 const SYSTEM_PROMPT = `Given one task title, name the single smallest, most concrete literal
@@ -8,7 +13,7 @@ first action to open it — something doable in under 2 minutes with zero decisi
 (e.g. "Open the file and read the first function" not "start working on it"). One sentence, no
 preamble.`;
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -24,7 +29,8 @@ export async function POST() {
   }
 
   const task = tasks[0];
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const userKey = userKeyFromRequest(request);
+  if (!userKey && !process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({
       suggestion: `Open "${task.title}" and just look at it for a minute. That's the whole step.`,
       taskTitle: task.title,
@@ -32,7 +38,7 @@ export async function POST() {
   }
 
   try {
-    const response = await getAnthropicClient().messages.create({
+    const response = await getAnthropicClient(userKey).messages.create({
       model: COMPANION_MODEL,
       max_tokens: 150,
       system: SYSTEM_PROMPT,

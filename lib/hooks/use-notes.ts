@@ -1,55 +1,59 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchJSON } from "@/lib/fetch-json";
 import type { Note } from "@/lib/types";
 
-export function useNotes(query: string, tag: string | null) {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+function notesKey(query: string, tag: string | null) {
+  return ["notes", query, tag] as const;
+}
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
+export function useNotes(query: string, tag: string | null, enabled = true) {
+  const queryClient = useQueryClient();
+  const key = notesKey(query, tag);
+
+  const { data, isLoading } = useQuery({
+    queryKey: key,
+    queryFn: () => {
       const params = new URLSearchParams();
       if (query) params.set("q", query);
       if (tag) params.set("tag", tag);
-      const { notes } = await fetchJSON<{ notes: Note[] }>(
-        `/api/notes?${params.toString()}`
-      );
-      setNotes(notes);
-    } finally {
-      setLoading(false);
-    }
-  }, [query, tag]);
+      return fetchJSON<{ notes: Note[] }>(`/api/notes?${params.toString()}`).then((r) => r.notes);
+    },
+    enabled,
+  });
+  const notes = data ?? [];
 
-  useEffect(() => {
-    const id = setTimeout(refresh, 200);
-    return () => clearTimeout(id);
-  }, [refresh]);
+  const invalidateAll = () => queryClient.invalidateQueries({ queryKey: ["notes"] });
 
-  const createNote = useCallback(async () => {
-    const { note } = await fetchJSON<{ note: Note }>("/api/notes", {
-      method: "POST",
-      body: JSON.stringify({ title: "Untitled", body: "", tags: [] }),
-    });
-    setNotes((prev) => [note, ...prev]);
-    return note;
-  }, []);
+  const createMutation = useMutation({
+    mutationFn: () =>
+      fetchJSON<{ note: Note }>("/api/notes", {
+        method: "POST",
+        body: JSON.stringify({ title: "Untitled", body: "", tags: [] }),
+      }).then((r) => r.note),
+    onSuccess: () => invalidateAll(),
+  });
 
-  const updateNote = useCallback(async (id: string, patch: Partial<Note>) => {
-    const { note } = await fetchJSON<{ note: Note }>(`/api/notes/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
-    setNotes((prev) => prev.map((n) => (n.id === id ? note : n)));
-    return note;
-  }, []);
+  const updateMutation = useMutation({
+    mutationFn: (vars: { id: string; patch: Partial<Note> }) =>
+      fetchJSON<{ note: Note }>(`/api/notes/${vars.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(vars.patch),
+      }).then((r) => r.note),
+    onSuccess: () => invalidateAll(),
+  });
 
-  const deleteNote = useCallback(async (id: string) => {
-    await fetchJSON(`/api/notes/${id}`, { method: "DELETE" });
-    setNotes((prev) => prev.filter((n) => n.id !== id));
-  }, []);
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => fetchJSON(`/api/notes/${id}`, { method: "DELETE" }),
+    onSuccess: () => invalidateAll(),
+  });
 
-  return { notes, loading, createNote, updateNote, deleteNote };
+  return {
+    notes,
+    loading: isLoading,
+    createNote: () => createMutation.mutateAsync(),
+    updateNote: (id: string, patch: Partial<Note>) => updateMutation.mutateAsync({ id, patch }),
+    deleteNote: (id: string) => deleteMutation.mutateAsync(id),
+  };
 }

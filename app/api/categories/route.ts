@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { parseJSON } from "@/lib/validation/parse";
+import { CategoryCreateSchema } from "@/lib/validation/schemas";
 
 export async function GET() {
   const supabase = await createClient();
@@ -25,8 +27,9 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { name, color } = await request.json();
-  if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
+  const parsed = await parseJSON(request, CategoryCreateSchema);
+  if (parsed.error) return parsed.error;
+  const { name, color } = parsed.data;
 
   const { data, error } = await supabase
     .from("categories")

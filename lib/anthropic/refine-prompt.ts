@@ -10,8 +10,8 @@ do not pad it with generic filler.
 
 Respond with ONLY the refined prompt text. No preamble, no markdown fences, no explanation.`;
 
-export async function refinePrompt(rawInput: string): Promise<string> {
-  const message = await getAnthropicClient().messages.create({
+export async function refinePrompt(rawInput: string, userKey?: string | null): Promise<string> {
+  const message = await getAnthropicClient(userKey).messages.create({
     model: COMPANION_MODEL,
     max_tokens: 1024,
     system: SYSTEM_PROMPT,

@@ -1,6 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getAnthropicClient, firstText, COMPANION_MODEL } from "@/lib/anthropic/client";
+import {
+  getAnthropicClient,
+  firstText,
+  COMPANION_MODEL,
+  userKeyFromRequest,
+} from "@/lib/anthropic/client";
 import { getRecentSessions } from "@/lib/companion/context";
 
 const SYSTEM_PROMPT = `You write a short, honest weekly review for a deep-work app from real
@@ -16,7 +21,7 @@ function median(nums: number[]) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -46,12 +51,13 @@ export async function GET() {
     });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const userKey = userKeyFromRequest(request);
+  if (!userKey && !process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ stats, insight: null });
   }
 
   try {
-    const response = await getAnthropicClient().messages.create({
+    const response = await getAnthropicClient(userKey).messages.create({
       model: COMPANION_MODEL,
       max_tokens: 300,
       system: SYSTEM_PROMPT,

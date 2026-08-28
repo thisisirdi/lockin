@@ -13,6 +13,7 @@ import { TasksWindow } from "@/components/os/windows/TasksWindow";
 import { NotesWindow } from "@/components/os/windows/NotesWindow";
 import { PromptsWindow } from "@/components/os/windows/PromptsWindow";
 import { ClipboardWindow } from "@/components/os/windows/ClipboardWindow";
+import { StudioWindow } from "@/components/os/windows/StudioWindow";
 import { Companion } from "@/components/os/companion/Companion";
 import { GridOverlay } from "@/components/os/GridOverlay";
 import { Dock } from "@/components/os/Dock";
@@ -22,9 +23,11 @@ import { UserMenu } from "@/components/nav/user-menu";
 export function Desktop({
   email,
   avatarUrl,
+  isNewAccount,
 }: {
   email: string | null;
   avatarUrl: string | null;
+  isNewAccount: boolean;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ width: 1240, height: 780 });
@@ -49,7 +52,7 @@ export function Desktop({
 
   useEffect(() => {
     const noneVisible = WINDOW_IDS.every((id) => !windows[id].visible && !windows[id].minimized);
-    if (noneVisible && stage.width > 0) applyLayout("home", stage);
+    if (noneVisible && stage.width > 0) applyLayout(isNewAccount ? "studio" : "home", stage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage.width > 0]);
 
@@ -114,6 +117,7 @@ export function Desktop({
       <NotesWindow stageRef={stageRef} />
       <PromptsWindow stageRef={stageRef} />
       <ClipboardWindow stageRef={stageRef} />
+      <StudioWindow stageRef={stageRef} />
       <Companion stageRef={stageRef} stage={stage} />
 
       <SelectionAsk stageRef={stageRef} />

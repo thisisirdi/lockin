@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { OSWindow } from "@/components/os/Window";
 import { useStats } from "@/lib/hooks/use-stats";
+import { useOSStore } from "@/lib/store/os";
 import { bucketLevel } from "@/lib/streak";
 import { Clock, Flame } from "lucide-react";
 
@@ -29,7 +30,8 @@ function buildWeeks(dailyMinutes: Record<string, number>, weeksBack: number) {
 
 export function ClockWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
   const [now, setNow] = useState<Date | null>(null);
-  const stats = useStats();
+  const visible = useOSStore((s) => s.windows.clock.visible);
+  const stats = useStats(visible);
 
   useEffect(() => {
     const tick = () => setNow(new Date());

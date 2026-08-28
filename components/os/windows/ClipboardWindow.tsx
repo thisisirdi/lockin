@@ -1,18 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
 import { OSWindow } from "@/components/os/Window";
 import { useClipboardHistory } from "@/lib/hooks/use-clipboard";
+import { useOSStore } from "@/lib/store/os";
 import { Clipboard, Copy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
 export function ClipboardWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
-  const { items, load, remove, clear } = useClipboardHistory();
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const visible = useOSStore((s) => s.windows.clipboard.visible);
+  const { items, remove, clear } = useClipboardHistory(visible);
 
   return (
     <OSWindow id="clipboard" icon={<Clipboard className="h-[13px] w-[13px]" strokeWidth={1.9} />} stageRef={stageRef}>

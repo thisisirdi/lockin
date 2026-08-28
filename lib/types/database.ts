@@ -1,4 +1,4 @@
-// Hand-authored types mirroring db/migrations/0001_init.sql.
+// Hand-authored types mirroring db/migrations/0001_init.sql and 0002_studio.sql.
 // If you later generate types via `supabase gen types typescript`, replace
 // this file with the generated one — the shape is intentionally compatible.
 
@@ -19,6 +19,67 @@ export interface RoomSettings {
   youtube_url: string | null;
   volume: number;
 }
+
+// ---------------------------------------------------------------------------
+// Studio (0002)
+// ---------------------------------------------------------------------------
+
+export type BlockType =
+  | "role"
+  | "context"
+  | "task"
+  | "constraints"
+  | "format"
+  | "examples"
+  | "guardrails";
+
+export type BlockState = "empty" | "draft" | "locked";
+
+export interface PromptBlock {
+  id: string;
+  block_type: BlockType;
+  framework_slot: string | null;
+  body: string;
+  state: BlockState;
+  order: number;
+}
+
+export interface PromptVariable {
+  key: string;
+  label: string;
+  type: "text" | "number" | "select" | "boolean";
+  required: boolean;
+  options?: string[];
+  default?: string;
+}
+
+export interface FrameworkSlot {
+  slot: string;
+  label: string;
+  block_type: BlockType;
+  required: boolean;
+}
+
+export type ContextBlockKind =
+  | "company"
+  | "product"
+  | "customer"
+  | "stack"
+  | "audience"
+  | "voice"
+  | "glossary"
+  | "snippet";
+
+export type DeliverableType =
+  | "discovery"
+  | "runbook"
+  | "troubleshooting"
+  | "onboarding"
+  | "qbr"
+  | "enablement"
+  | "comms"
+  | "analysis"
+  | "other";
 
 // supabase-js's generic query builder expects each table to carry a
 // `Relationships` array (used for embedded-resource typing, which we don't
@@ -115,16 +176,24 @@ type ClipboardItemsRow = {
 
 type PromptsRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   title: string;
   body: string;
   tags: string[];
   usage_count: number;
+  deliverable_type: DeliverableType | null;
+  framework_id: string | null;
+  current_version_id: string | null;
+  description: string | null;
+  is_starter: boolean;
+  forked_from_id: string | null;
+  public_slug: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-type PromptRefinementsRow = {
+type PromptRefinementsLegacyRow = {
   id: string;
   user_id: string;
   original_prompt_id: string | null;
@@ -133,20 +202,79 @@ type PromptRefinementsRow = {
   created_at: string;
 };
 
-type RoomsRow = {
+type FrameworksRow = {
   id: string;
-  owner_id: string;
+  key: string;
   name: string;
-  slug: string;
-  description: string | null;
-  youtube_url: string | null;
-  avatar_url: string | null;
-  deadline: string | null;
-  is_public: boolean;
+  acronym_expansion: string;
+  slot_map: FrameworkSlot[];
+  source_url: string | null;
+  is_active: boolean;
   created_at: string;
 };
 
-type RoomMembersRow = { room_id: string; user_id: string; joined_at: string };
+type PromptVersionsRow = {
+  id: string;
+  prompt_id: string;
+  version_no: number;
+  blocks: PromptBlock[];
+  variables: PromptVariable[];
+  change_note: string | null;
+  created_from_run_id: string | null;
+  created_at: string;
+};
+
+type ContextBlocksRow = {
+  id: string;
+  user_id: string;
+  kind: ContextBlockKind;
+  name: string;
+  body: string;
+  token_estimate: number;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type PromptVersionContextsRow = {
+  prompt_version_id: string;
+  context_block_id: string;
+  position: number;
+};
+
+type PromptRunsRow = {
+  id: string;
+  user_id: string;
+  prompt_version_id: string;
+  provider: string;
+  model: string | null;
+  variable_values: Record<string, string>;
+  resolved_prompt: string;
+  output: string | null;
+  rating: number | null;
+  critique_tags: string[];
+  latency_ms: number | null;
+  created_at: string;
+};
+
+type CritiqueMappingsRow = {
+  tag: string;
+  label: string;
+  target_block_type: BlockType;
+  patch_instruction: string;
+  static_hint: string | null;
+};
+
+type PromptBlockRefinementsRow = {
+  id: string;
+  user_id: string;
+  prompt_id: string | null;
+  block_type: BlockType;
+  before: string;
+  after: string;
+  accepted: boolean;
+  created_at: string;
+};
 
 export interface Database {
   public: {
@@ -212,27 +340,57 @@ export interface Database {
       >;
       prompts: Table<
         PromptsRow,
-        Partial<PromptsRow> & { user_id: string; title: string; body: string },
+        Partial<PromptsRow> & { title: string; body: string },
         Partial<PromptsRow>
       >;
-      prompt_refinements: Table<
-        PromptRefinementsRow,
-        Partial<PromptRefinementsRow> & {
+      prompt_refinements_legacy: Table<
+        PromptRefinementsLegacyRow,
+        Partial<PromptRefinementsLegacyRow> & {
           user_id: string;
           raw_input: string;
           refined_output: string;
         },
-        Partial<PromptRefinementsRow>
+        Partial<PromptRefinementsLegacyRow>
       >;
-      rooms: Table<
-        RoomsRow,
-        Partial<RoomsRow> & { owner_id: string; name: string; slug: string },
-        Partial<RoomsRow>
+      frameworks: Table<
+        FrameworksRow,
+        Partial<FrameworksRow> & { key: string; name: string; acronym_expansion: string; slot_map: FrameworkSlot[] },
+        Partial<FrameworksRow>
       >;
-      room_members: Table<
-        RoomMembersRow,
-        { room_id: string; user_id: string },
-        Partial<RoomMembersRow>
+      prompt_versions: Table<
+        PromptVersionsRow,
+        Partial<PromptVersionsRow> & { prompt_id: string; version_no: number },
+        Partial<PromptVersionsRow>
+      >;
+      context_blocks: Table<
+        ContextBlocksRow,
+        Partial<ContextBlocksRow> & { user_id: string; kind: ContextBlockKind; name: string },
+        Partial<ContextBlocksRow>
+      >;
+      prompt_version_contexts: Table<
+        PromptVersionContextsRow,
+        PromptVersionContextsRow,
+        Partial<PromptVersionContextsRow>
+      >;
+      prompt_runs: Table<
+        PromptRunsRow,
+        Partial<PromptRunsRow> & { user_id: string; prompt_version_id: string; resolved_prompt: string },
+        Partial<PromptRunsRow>
+      >;
+      critique_mappings: Table<
+        CritiqueMappingsRow,
+        CritiqueMappingsRow,
+        Partial<CritiqueMappingsRow>
+      >;
+      prompt_block_refinements: Table<
+        PromptBlockRefinementsRow,
+        Partial<PromptBlockRefinementsRow> & {
+          user_id: string;
+          block_type: BlockType;
+          before: string;
+          after: string;
+        },
+        Partial<PromptBlockRefinementsRow>
       >;
     };
     Views: Record<string, never>;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { fetchJSON } from "@/lib/fetch-json";
 import { toast } from "sonner";
 
@@ -16,6 +17,7 @@ export function ReviewTab() {
   const [stats, setStats] = useState<ReviewStats | null>(null);
   const [insight, setInsight] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     fetchJSON<{ stats: ReviewStats; insight: string | null }>("/api/companion/review")
@@ -68,6 +70,7 @@ export function ReviewTab() {
                 tags: ["review"],
               }),
             });
+            queryClient.invalidateQueries({ queryKey: ["notes"] });
             toast.success("Saved to Notes");
           }}
           className="w-fit rounded-[9px] border px-[11px] py-1.5 text-[12.5px]"

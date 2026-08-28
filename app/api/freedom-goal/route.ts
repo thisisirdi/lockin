@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { parseJSON } from "@/lib/validation/parse";
+import { FreedomGoalCreateSchema } from "@/lib/validation/schemas";
 
 export async function GET() {
   const supabase = await createClient();
@@ -45,15 +47,9 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { monthlyRevenueGoal, currency, projectName, projectUrl, categoryIds } =
-    await request.json();
-
-  if (!monthlyRevenueGoal || !projectName) {
-    return NextResponse.json(
-      { error: "monthlyRevenueGoal and projectName are required" },
-      { status: 400 }
-    );
-  }
+  const parsed = await parseJSON(request, FreedomGoalCreateSchema);
+  if (parsed.error) return parsed.error;
+  const { monthlyRevenueGoal, currency, projectName, projectUrl, categoryIds } = parsed.data;
 
   const { data: goal, error: goalError } = await supabase
     .from("freedom_goals")

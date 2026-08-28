@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/types/database";
+import { parseJSON } from "@/lib/validation/parse";
+import { TaskUpdateSchema } from "@/lib/validation/schemas";
 
 type TaskUpdate = Database["public"]["Tables"]["tasks"]["Update"];
 
@@ -15,7 +17,9 @@ export async function PATCH(
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
+  const parsed = await parseJSON(request, TaskUpdateSchema);
+  if (parsed.error) return parsed.error;
+  const body = parsed.data;
   const update: TaskUpdate = {};
   if (body.title !== undefined) update.title = body.title;
   if (body.type !== undefined) update.type = body.type;

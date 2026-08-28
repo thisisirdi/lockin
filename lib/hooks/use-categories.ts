@@ -1,39 +1,36 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchJSON } from "@/lib/fetch-json";
 import type { Category } from "@/lib/types";
 
-export function useCategories() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+const categoriesKey = ["categories"] as const;
 
-  const refresh = useCallback(async () => {
-    try {
-      const { categories } = await fetchJSON<{ categories: Category[] }>(
-        "/api/categories"
-      );
-      setCategories(categories);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export function useCategories(enabled = true) {
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: categoriesKey,
+    queryFn: () => fetchJSON<{ categories: Category[] }>("/api/categories").then((r) => r.categories),
+    enabled,
+  });
+  const categories = data ?? [];
 
-  const addCategory = useCallback(
-    async (name: string, color?: string) => {
-      const { category } = await fetchJSON<{ category: Category }>(
-        "/api/categories",
-        { method: "POST", body: JSON.stringify({ name, color }) }
-      );
-      setCategories((prev) => [...prev, category]);
-      return category;
+  const addMutation = useMutation({
+    mutationFn: (vars: { name: string; color?: string }) =>
+      fetchJSON<{ category: Category }>("/api/categories", {
+        method: "POST",
+        body: JSON.stringify(vars),
+      }).then((r) => r.category),
+    onSuccess: (category) => {
+      queryClient.setQueryData<Category[]>(categoriesKey, (prev) => [...(prev ?? []), category]);
     },
-    []
-  );
+  });
 
-  return { categories, loading, refresh, addCategory };
+  return {
+    categories,
+    loading: isLoading,
+    refresh: () => refetch(),
+    addCategory: (name: string, color?: string) => addMutation.mutateAsync({ name, color }),
+  };
 }

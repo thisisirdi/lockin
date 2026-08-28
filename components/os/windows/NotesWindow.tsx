@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { OSWindow } from "@/components/os/Window";
 import { useNotes } from "@/lib/hooks/use-notes";
+import { useOSStore } from "@/lib/store/os";
 import { copyWithHistory } from "@/lib/copy";
 import { NotebookPen, Copy, Plus } from "lucide-react";
 
 export function NotesWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
-  const { notes, createNote, updateNote } = useNotes("", null);
+  const visible = useOSStore((s) => s.windows.notes.visible);
+  const { notes, createNote, updateNote } = useNotes("", null, visible);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftBody, setDraftBody] = useState("");
 

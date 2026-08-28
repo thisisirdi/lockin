@@ -1,12 +1,22 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { ANTHROPIC_KEY_HEADER } from "@/lib/anthropic/constants";
 
-let client: Anthropic | null = null;
+let envClient: Anthropic | null = null;
 
-export function getAnthropicClient() {
-  if (!client) {
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  }
-  return client;
+/** Pass the caller's own key (BYO key) to bill their account instead of ours. */
+export function getAnthropicClient(userKey?: string | null) {
+  if (userKey) return new Anthropic({ apiKey: userKey });
+  if (!envClient) envClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return envClient;
+}
+
+/** Reads the BYO key a client attached via `fetchJSON`, if any. Never logged, never stored. */
+export function userKeyFromRequest(request: Request): string | null {
+  return request.headers.get(ANTHROPIC_KEY_HEADER)?.trim() || null;
+}
+
+export function hasAnyKey(userKey: string | null) {
+  return Boolean(userKey || process.env.ANTHROPIC_API_KEY);
 }
 
 export function firstText(message: Anthropic.Message): string {

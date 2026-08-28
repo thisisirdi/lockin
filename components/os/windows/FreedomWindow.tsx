@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { OSWindow } from "@/components/os/Window";
 import { fetchJSON } from "@/lib/fetch-json";
 import { useCategories } from "@/lib/hooks/use-categories";
+import { useOSStore } from "@/lib/store/os";
 import type { FreedomGoal, Project, Session } from "@/lib/types";
 import { startOfMonth, startOfWeek } from "date-fns";
 import { Target } from "lucide-react";
@@ -16,20 +17,22 @@ interface GoalResponse {
 }
 
 export function FreedomWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
+  const visible = useOSStore((s) => s.windows.freedom.visible);
   const [data, setData] = useState<GoalResponse | null>(null);
   const [monthHours, setMonthHours] = useState<number | null>(null);
   const [weekHours, setWeekHours] = useState<number | null>(null);
-  const { categories } = useCategories();
+  const { categories } = useCategories(visible);
   const [goalInput, setGoalInput] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
+    if (!visible) return;
     fetchJSON<GoalResponse>("/api/freedom-goal").then(setData);
-  }, []);
+  }, [visible]);
 
   useEffect(() => {
-    if (!data?.goal) return;
+    if (!visible || !data?.goal) return;
     const linked = data.categories.length > 0 ? data.categories : categories.map((c) => c.id);
     fetchJSON<{ sessions: Session[] }>(
       `/api/sessions?from=${startOfMonth(new Date()).toISOString()}`
@@ -45,7 +48,7 @@ export function FreedomWindow({ stageRef }: { stageRef: React.RefObject<HTMLDivE
       setMonthHours(monthSeconds / 3600);
       setWeekHours(weekSeconds / 3600);
     });
-  }, [data, categories]);
+  }, [visible, data, categories]);
 
   async function submit() {
     if (!goalInput || !nameInput.trim()) return;

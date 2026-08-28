@@ -1,7 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getAnthropicClient, firstText, COMPANION_MODEL } from "@/lib/anthropic/client";
+import {
+  getAnthropicClient,
+  firstText,
+  COMPANION_MODEL,
+  hasAnyKey,
+  userKeyFromRequest,
+} from "@/lib/anthropic/client";
 import { getRecentNotes } from "@/lib/companion/context";
+import { parseJSON } from "@/lib/validation/parse";
+import { CompanionAskNotesSchema } from "@/lib/validation/schemas";
 
 const SYSTEM_PROMPT = `Answer the question using ONLY the notes provided below. If the notes don't
 contain an answer, say so plainly — don't guess or use outside knowledge. Keep it to 2-4
@@ -15,17 +23,17 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const userKey = userKeyFromRequest(request);
+  if (!hasAnyKey(userKey)) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not configured on the server" },
+      { error: "No Anthropic API key configured. Add one in Settings." },
       { status: 500 }
     );
   }
 
-  const { question } = await request.json();
-  if (!question || typeof question !== "string" || !question.trim()) {
-    return NextResponse.json({ error: "question is required" }, { status: 400 });
-  }
+  const parsed = await parseJSON(request, CompanionAskNotesSchema);
+  if (parsed.error) return parsed.error;
+  const { question } = parsed.data;
 
   const notes = await getRecentNotes(supabase, user.id, 40);
   if (notes.length === 0) {
@@ -37,7 +45,7 @@ export async function POST(request: NextRequest) {
     .join("\n\n");
 
   try {
-    const response = await getAnthropicClient().messages.create({
+    const response = await getAnthropicClient(userKey).messages.create({
       model: COMPANION_MODEL,
       max_tokens: 400,
       system: SYSTEM_PROMPT + `\n\nNotes:\n${notesBlock}`,

@@ -1,6 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getAnthropicClient, firstText, COMPANION_MODEL } from "@/lib/anthropic/client";
+import {
+  getAnthropicClient,
+  firstText,
+  COMPANION_MODEL,
+  hasAnyKey,
+  userKeyFromRequest,
+} from "@/lib/anthropic/client";
 import { getOpenTasks, getFreedomGoalSummary } from "@/lib/companion/context";
 
 const SYSTEM_PROMPT = `You plan focused work blocks for the rest of today from a real task list.
@@ -11,16 +17,17 @@ Rules: use only the tasks given, don't invent new ones. Include at least one sho
 work blocks. "startable" is true only for real task blocks (not breaks/lunch). Keep "note" under
 12 words. Base the first block's time on the current time provided.`;
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const userKey = userKeyFromRequest(request);
+  if (!hasAnyKey(userKey)) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not configured on the server" },
+      { error: "No Anthropic API key configured. Add one in Settings." },
       { status: 500 }
     );
   }
@@ -45,7 +52,7 @@ export async function POST() {
   };
 
   try {
-    const response = await getAnthropicClient().messages.create({
+    const response = await getAnthropicClient(userKey).messages.create({
       model: COMPANION_MODEL,
       max_tokens: 1024,
       system: SYSTEM_PROMPT,

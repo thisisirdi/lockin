@@ -1,58 +1,72 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchJSON } from "@/lib/fetch-json";
 import type { Prompt } from "@/lib/types";
 
-export function usePrompts() {
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [loading, setLoading] = useState(true);
+const promptsKey = ["prompts"] as const;
 
-  const refresh = useCallback(async () => {
-    try {
-      const { prompts } = await fetchJSON<{ prompts: Prompt[] }>("/api/prompts");
-      setPrompts(prompts);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export function usePrompts(enabled = true) {
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const { data, isLoading } = useQuery({
+    queryKey: promptsKey,
+    queryFn: () => fetchJSON<{ prompts: Prompt[] }>("/api/prompts").then((r) => r.prompts),
+    enabled,
+  });
+  const prompts = data ?? [];
 
-  const createPrompt = useCallback(
-    async (title: string, body: string, tags: string[] = []) => {
-      const { prompt } = await fetchJSON<{ prompt: Prompt }>("/api/prompts", {
+  const createMutation = useMutation({
+    mutationFn: (vars: { title: string; body: string; tags: string[] }) =>
+      fetchJSON<{ prompt: Prompt }>("/api/prompts", {
         method: "POST",
-        body: JSON.stringify({ title, body, tags }),
-      });
-      setPrompts((prev) => [prompt, ...prev]);
-      return prompt;
+        body: JSON.stringify(vars),
+      }).then((r) => r.prompt),
+    onSuccess: (prompt) => {
+      queryClient.setQueryData<Prompt[]>(promptsKey, (prev) => [prompt, ...(prev ?? [])]);
     },
-    []
-  );
+  });
 
-  const updatePrompt = useCallback(async (id: string, patch: Partial<Prompt>) => {
-    const { prompt } = await fetchJSON<{ prompt: Prompt }>(`/api/prompts/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
-    setPrompts((prev) => prev.map((p) => (p.id === id ? prompt : p)));
-    return prompt;
-  }, []);
+  const updateMutation = useMutation({
+    mutationFn: (vars: { id: string; patch: Partial<Prompt> }) =>
+      fetchJSON<{ prompt: Prompt }>(`/api/prompts/${vars.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(vars.patch),
+      }).then((r) => r.prompt),
+    onSuccess: (prompt) => {
+      queryClient.setQueryData<Prompt[]>(promptsKey, (prev) =>
+        (prev ?? []).map((p) => (p.id === prompt.id ? prompt : p))
+      );
+    },
+  });
 
-  const deletePrompt = useCallback(async (id: string) => {
-    await fetchJSON(`/api/prompts/${id}`, { method: "DELETE" });
-    setPrompts((prev) => prev.filter((p) => p.id !== id));
-  }, []);
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => fetchJSON(`/api/prompts/${id}`, { method: "DELETE" }),
+    onSuccess: (_data, id) => {
+      queryClient.setQueryData<Prompt[]>(promptsKey, (prev) => (prev ?? []).filter((p) => p.id !== id));
+    },
+  });
 
-  const trackUsage = useCallback(async (id: string) => {
-    await fetchJSON(`/api/prompts/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ incrementUsage: true }),
-    }).catch(() => {});
-  }, []);
+  const trackUsageMutation = useMutation({
+    mutationFn: (id: string) =>
+      fetchJSON<{ prompt: Prompt }>(`/api/prompts/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ incrementUsage: true }),
+      }).then((r) => r.prompt),
+    onSuccess: (prompt) => {
+      queryClient.setQueryData<Prompt[]>(promptsKey, (prev) =>
+        (prev ?? []).map((p) => (p.id === prompt.id ? prompt : p))
+      );
+    },
+  });
 
-  return { prompts, loading, createPrompt, updatePrompt, deletePrompt, trackUsage };
+  return {
+    prompts,
+    loading: isLoading,
+    createPrompt: (title: string, body: string, tags: string[] = []) =>
+      createMutation.mutateAsync({ title, body, tags }),
+    updatePrompt: (id: string, patch: Partial<Prompt>) => updateMutation.mutateAsync({ id, patch }),
+    deletePrompt: (id: string) => deleteMutation.mutateAsync(id),
+    trackUsage: (id: string) => trackUsageMutation.mutateAsync(id).catch(() => {}),
+  };
 }
