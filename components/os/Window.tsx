@@ -61,7 +61,7 @@ export function OSWindow({
   const setInteracting = useOSStore((s) => s.setInteracting);
   const elRef = useRef<HTMLDivElement>(null);
 
-  if (!win.visible) return null;
+  if (!win?.visible) return null;
 
   function stage() {
     return stageRef.current!.getBoundingClientRect();

@@ -55,7 +55,7 @@ export function Dock({ stage }: { stage: { width: number; height: number } }) {
     >
       {DOCK_ITEMS.map(({ id, icon: Icon }) => {
         const w = windows[id];
-        const on = w.visible;
+        const on = w?.visible ?? false;
         return (
           <button
             key={id}

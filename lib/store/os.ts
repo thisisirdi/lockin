@@ -21,6 +21,27 @@ function initialWindows(): Record<WindowId, WindowState> {
   return out;
 }
 
+/**
+ * Repairs a window entry that may be missing, or partial from an earlier bug
+ * (e.g. `focus()` spreading `...undefined` before a new WINDOW_IDS entry had
+ * a default). Every store mutation goes through this, so a malformed entry
+ * anywhere — including ones already sitting in a user's localStorage — heals
+ * itself on the next read instead of propagating.
+ */
+function sanitizeWindowState(w: Partial<WindowState> | undefined): WindowState {
+  const g = w?.geometry;
+  const validGeometry =
+    g && typeof g.x === "number" && typeof g.y === "number" && typeof g.w === "number"
+      ? g
+      : { ...DEFAULT_GEOMETRY };
+  return {
+    geometry: validGeometry,
+    visible: w?.visible ?? false,
+    minimized: w?.minimized ?? false,
+    z: w?.z ?? 1,
+  };
+}
+
 function fitFactor(stageW: number, stageH: number) {
   return Math.max(0.6, Math.min(1, stageW / REFERENCE_STAGE.width, stageH / REFERENCE_STAGE.height));
 }
@@ -33,6 +54,7 @@ function findFreeSpot(
   stage: { width: number; height: number }
 ): { x: number; y: number } {
   const occupied = Object.entries(windows)
+    .map(([wid, w]) => [wid, sanitizeWindowState(w)] as const)
     .filter(([wid, w]) => wid !== selfId && w.visible)
     .map(([, w]) => ({ x: w.geometry.x, y: w.geometry.y, w: w.geometry.w, h: w.geometry.h ?? 200 }));
   return findFreeSpotAmong(occupied, size, stage);
@@ -86,12 +108,12 @@ export const useOSStore = create<OSState>()(
         const z = get().topZ + 1;
         set((s) => ({
           topZ: z,
-          windows: { ...s.windows, [id]: { ...s.windows[id], z } },
+          windows: { ...s.windows, [id]: { ...sanitizeWindowState(s.windows[id]), z } },
         }));
       },
 
       show: (id, stage) => {
-        const w = get().windows[id];
+        const w = sanitizeWindowState(get().windows[id]);
         const spot = findFreeSpot(get().windows, id, { w: w.geometry.w, h: w.geometry.h ?? 200 }, stage);
         set((s) => ({
           windows: {
@@ -109,23 +131,26 @@ export const useOSStore = create<OSState>()(
 
       hide: (id, minimized = false) => {
         set((s) => ({
-          windows: { ...s.windows, [id]: { ...s.windows[id], visible: false, minimized } },
+          windows: {
+            ...s.windows,
+            [id]: { ...sanitizeWindowState(s.windows[id]), visible: false, minimized },
+          },
         }));
       },
 
       toggle: (id, stage) => {
-        const w = get().windows[id];
+        const w = sanitizeWindowState(get().windows[id]);
         if (w.visible) get().hide(id, true);
         else get().show(id, stage);
       },
 
       commitGeometry: (id, geometry) => {
-        set((s) => ({
-          windows: {
-            ...s.windows,
-            [id]: { ...s.windows[id], geometry: { ...s.windows[id].geometry, ...geometry } },
-          },
-        }));
+        set((s) => {
+          const w = sanitizeWindowState(s.windows[id]);
+          return {
+            windows: { ...s.windows, [id]: { ...w, geometry: { ...w.geometry, ...geometry } } },
+          };
+        });
       },
 
       applyLayout: (key, stage) => {
@@ -207,16 +232,18 @@ export const useOSStore = create<OSState>()(
         wallpaper: s.wallpaper,
       }),
       // A persisted blob predating a new WINDOW_IDS entry (e.g. "studio") won't
-      // have that key. persist's default merge shallow-replaces `windows`
-      // wholesale, leaving it undefined for the new id — fill gaps from the
-      // fresh default state instead of trusting the persisted shape.
+      // have that key, and a key it does have may itself be a malformed
+      // leftover from an earlier bug (a mutation spreading over a then-missing
+      // entry). Rebuild every window from WINDOW_IDS through the sanitizer
+      // rather than trusting the persisted shape at all, so any corruption
+      // already sitting in a user's localStorage self-heals on load.
       merge: (persisted, current) => {
         const p = persisted as Partial<OSState> | undefined;
-        return {
-          ...current,
-          ...p,
-          windows: { ...current.windows, ...(p?.windows ?? {}) },
-        };
+        const windows = {} as Record<WindowId, WindowState>;
+        for (const id of WINDOW_IDS) {
+          windows[id] = sanitizeWindowState(p?.windows?.[id] ?? current.windows[id]);
+        }
+        return { ...current, ...p, windows };
       },
     }
   )
